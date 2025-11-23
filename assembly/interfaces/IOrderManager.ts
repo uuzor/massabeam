@@ -19,6 +19,7 @@ export class IOrderManager {
 
   /**
    * Create a limit order
+   * @param orderType - 0 = BUY, 1 = SELL
    */
   createLimitOrder(
     tokenIn: string,
@@ -26,6 +27,7 @@ export class IOrderManager {
     amountIn: u256,
     minAmountOut: u256,
     limitPrice: u256,
+    orderType: u8,
     expiry: u64,
     coins: u64 = 0,
   ): u256 {
@@ -35,6 +37,7 @@ export class IOrderManager {
       .add(amountIn)
       .add(minAmountOut)
       .add(limitPrice)
+      .add(orderType)
       .add(expiry);
 
     const result = call(this._origin, 'createLimitOrder', args, coins);
