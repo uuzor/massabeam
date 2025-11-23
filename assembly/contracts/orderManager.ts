@@ -9,6 +9,8 @@ import {
   Context,
   generateEvent,
   Storage,
+  call,
+  Coins,
 } from '@massalabs/massa-as-sdk';
 import { u256 } from 'as-bignum/assembly';
 import { ReentrancyGuard } from '../utils/reentrancyGuard';
@@ -19,6 +21,8 @@ import { PersistentMap } from '../utils/collections/persistentMap';
 // Storage keys
 export const ORDER_ID_COUNTER = stringToBytes('ORDER_ID_COUNTER');
 export const ORDER_PREFIX = stringToBytes('ORDER');
+export const FACTORY_ADDRESS_KEY = stringToBytes('FACTORY_ADDRESS');
+export const NATIVE_MAS_ADDRESS = 'NATIVE_MAS'; // Sentinel for native MAS token
 
 /**
  * Order Type Enum
@@ -167,8 +171,9 @@ export function createLimitOrder(binaryArgs: StaticArray<u8>): StaticArray<u8> {
   const orderKey = _getOrderKey(orderId);
   Storage.set(orderKey, order.serialize());
 
-  // TODO: Transfer tokenIn from user to contract
-  // This would require integration with token contracts
+  // Transfer tokenIn from user to this contract
+  // User must have approved this contract to spend their tokens
+  _transferTokensIn(tokenIn, caller, amountIn);
 
   const orderTypeStr = orderType == 0 ? 'BUY' : 'SELL';
   generateEvent(
@@ -208,8 +213,8 @@ export function cancelLimitOrder(binaryArgs: StaticArray<u8>): void {
   order.cancelled = true;
   Storage.set(orderKey, order.serialize());
 
-  // TODO: Return tokenIn to user
-  // This would require integration with token contracts
+  // Return tokenIn to user
+  _transferTokensOut(order.tokenIn, caller, order.amountIn);
 
   generateEvent(`LimitOrderCancelled:${orderId}:${caller}`);
 
@@ -267,11 +272,16 @@ export function executeLimitOrder(binaryArgs: StaticArray<u8>): void {
   order.filled = true;
   Storage.set(orderKey, order.serialize());
 
-  // TODO: Execute swap through pool
-  // This would require integration with pool contracts
+  // Note: In a production system, you would:
+  // 1. Query the factory to get the pool address for this token pair
+  // 2. Execute the swap through the pool
+  // 3. Verify the amountOut matches what was provided
+  //
+  // For now, we trust the executor and directly transfer the output tokens
+  // The executor must have already obtained tokenOut and will transfer it
 
-  // TODO: Transfer tokenOut to order owner
-  // This would require integration with token contracts
+  // Transfer tokenOut to order owner
+  _transferTokensOut(order.tokenOut, order.owner, amountOut);
 
   generateEvent(
     `LimitOrderExecuted:${orderId}:${order.owner}:${amountOut}:${actualPrice}`,
@@ -306,4 +316,108 @@ export function getOrderCount(_: StaticArray<u8>): StaticArray<u8> {
 
 function _getOrderKey(orderId: u256): StaticArray<u8> {
   return ORDER_PREFIX.concat(u256ToBytes(orderId));
+}
+
+/**
+ * Transfer tokens from user to this contract
+ * Supports both MRC6909 tokens and native MAS
+ */
+function _transferTokensIn(
+  token: string,
+  from: string,
+  amount: u256,
+): void {
+  if (token == NATIVE_MAS_ADDRESS) {
+    // For native MAS, we expect coins to be sent with the transaction
+    // The caller should have sent the amount as coins
+    const coinsReceived = Context.transferredCoins();
+    const amountU64 = amount.toU64(); // Convert u256 to u64 for MAS
+    assert(
+      coinsReceived >= amountU64,
+      'INSUFFICIENT_MAS_SENT',
+    );
+  } else {
+    // For MRC6909 tokens, call transferFrom
+    const transferArgs = new Args()
+      .add(from)
+      .add(Context.callee().toString())
+      .add(u256.Zero) // tokenId - using 0 for standard tokens
+      .add(amount);
+
+    call(
+      new Address(token),
+      'transferFrom',
+      transferArgs,
+      0,
+    );
+  }
+}
+
+/**
+ * Transfer tokens from this contract to user
+ * Supports both MRC6909 tokens and native MAS
+ */
+function _transferTokensOut(
+  token: string,
+  to: string,
+  amount: u256,
+): void {
+  if (token == NATIVE_MAS_ADDRESS) {
+    // For native MAS, transfer coins
+    const amountU64 = amount.toU64(); // Convert u256 to u64 for MAS
+    Coins.transferCoins(new Address(to), amountU64);
+  } else {
+    // For MRC6909 tokens, call transfer
+    const transferArgs = new Args()
+      .add(to)
+      .add(u256.Zero) // tokenId - using 0 for standard tokens
+      .add(amount);
+
+    call(
+      new Address(token),
+      'transfer',
+      transferArgs,
+      0,
+    );
+  }
+}
+
+/**
+ * Execute a swap through a pool
+ * This is a simplified version - in production you would route through the factory
+ */
+function _executeSwap(
+  poolAddress: string,
+  tokenIn: string,
+  tokenOut: string,
+  amountIn: u256,
+  recipient: string,
+): u256 {
+  // Determine swap direction (zeroForOne)
+  // This assumes tokens are sorted (token0 < token1)
+  const zeroForOne = tokenIn < tokenOut;
+
+  // For simplicity, we use approximate sqrt price limits
+  // In production, calculate proper price limits based on pool state
+  const sqrtPriceLimitX96 = zeroForOne
+    ? u256.fromU64(4295128739) // Approximate MIN_SQRT_RATIO + 1
+    : u256.Max; // Use max value as upper limit
+
+  const swapArgs = new Args()
+    .add(recipient)
+    .add(zeroForOne)
+    .add(amountIn) // Using as i128 approximation
+    .add(sqrtPriceLimitX96);
+
+  // Call pool swap function
+  call(
+    new Address(poolAddress),
+    'swap',
+    swapArgs,
+    0,
+  );
+
+  // Return expected amountOut (in production, parse return value)
+  // For now, return a placeholder
+  return u256.Zero;
 }
