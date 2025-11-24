@@ -5,6 +5,7 @@
     "main": "index.js",
     "scripts": {
         "test": "asp --summary",
+        "test:integration": "tsx src/integration-test.ts",
         "build": "massa-as-compile",
         "clean": "rimraf build",
         "deploy": "npm run build && tsx src/deploy.ts",
