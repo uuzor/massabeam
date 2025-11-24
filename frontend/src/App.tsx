@@ -6,16 +6,17 @@
 import { useState, useEffect } from 'react';
 import { web3 } from '@hicaru/bearby.js';
 import { Sidebar, Button } from './components';
+import { LandingPage } from './pages/LandingPage';
 import { SwapPage } from './pages/SwapPage';
 import { OrdersPage } from './pages/OrdersPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { PoolsPage } from './dex/pages';
 import './App.css';
 
-type Page = 'swap' | 'pools' | 'orders' | 'analytics';
+type Page = 'landing' | 'swap' | 'pools' | 'orders' | 'analytics';
 
 export default function App() {
-  const [activePage, setActivePage] = useState<Page>('swap');
+  const [activePage, setActivePage] = useState<Page>('landing');
   const [walletAddress, setWalletAddress] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
@@ -26,6 +27,10 @@ export default function App() {
       const connected = await web3.wallet.connect();
       if (connected && web3.wallet.account?.base58) {
         setWalletAddress(web3.wallet.account.base58);
+        // Navigate to swap page after connecting from landing
+        if (activePage === 'landing') {
+          setActivePage('swap');
+        }
       }
     } catch (error) {
       console.error('Wallet connection failed:', error);
@@ -100,6 +105,8 @@ export default function App() {
 
   const renderPage = () => {
     switch (activePage) {
+      case 'landing':
+        return <LandingPage onConnectWallet={connectWallet} onNavigate={(page) => setActivePage(page as Page)} />;
       case 'swap':
         return <SwapPage />;
       case 'pools':
@@ -122,6 +129,12 @@ export default function App() {
     }
   };
 
+  // Show full-width landing page without sidebar
+  if (activePage === 'landing') {
+    return <div className="app app-landing">{renderPage()}</div>;
+  }
+
+  // Show app with sidebar for all other pages
   return (
     <div className="app">
       <Sidebar

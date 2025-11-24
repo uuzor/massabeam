@@ -347,6 +347,214 @@ export function getActiveGridsCount(_: StaticArray<u8>): StaticArray<u8> {
 }
 
 /**
+ * Get factory address
+ */
+export function getFactoryAddress(_: StaticArray<u8>): StaticArray<u8> {
+  return new Args()
+    .addBytes(Storage.get(FACTORY_ADDRESS_KEY))
+    .serialize();
+}
+
+/**
+ * Get total grid count
+ */
+export function getGridCount(_: StaticArray<u8>): StaticArray<u8> {
+  return Storage.get(GRID_ID_COUNTER);
+}
+
+/**
+ * Get list of active grid IDs
+ */
+export function getActiveGrids(_: StaticArray<u8>): StaticArray<u8> {
+  const count = _getActiveGridsCount();
+  const args = new Args();
+
+  args.add(count); // Add count first
+
+  for (let i: u64 = 0; i < count; i++) {
+    const key = stringToBytes(`active_grid_${i.toString()}`);
+    if (Storage.has(key)) {
+      const gridId = bytesToU256(Storage.get(key));
+      args.add(gridId);
+    }
+  }
+
+  return args.serialize();
+}
+
+/**
+ * Get grids by owner
+ * @param binaryArgs - Contains:
+ *  - owner: string - Owner address
+ *  - limit: u64 - Max grids to return (optional, default 100)
+ */
+export function getUserGrids(binaryArgs: StaticArray<u8>): StaticArray<u8> {
+  const args = new Args(binaryArgs);
+  const owner = args.nextString().expect('owner missing');
+  const limit = args.nextU64().unwrap_or(100);
+
+  const totalGrids = bytesToU64(Storage.get(GRID_ID_COUNTER));
+  const result = new Args();
+
+  let matchCount: u64 = 0;
+
+  for (let i: u64 = 1; i <= totalGrids && matchCount < limit; i++) {
+    const gridId = u256.fromU64(i);
+    const gridKey = _getGridKey(gridId);
+
+    if (Storage.has(gridKey)) {
+      const grid = GridOrder.deserialize(Storage.get(gridKey));
+      if (grid.owner == owner) {
+        if (matchCount == 0) {
+          result.add(matchCount + 1);
+        }
+        result.addBytes(grid.serialize());
+        matchCount++;
+      }
+    }
+  }
+
+  if (matchCount == 0) {
+    return new Args().add(u64(0)).serialize();
+  }
+
+  return result.serialize();
+}
+
+/**
+ * Get all grid levels for a specific grid
+ * @param binaryArgs - Contains:
+ *  - gridId: u256 - Grid ID
+ */
+export function getAllGridLevels(binaryArgs: StaticArray<u8>): StaticArray<u8> {
+  const args = new Args(binaryArgs);
+  const gridId = args.nextU256().expect('gridId missing');
+
+  const gridKey = _getGridKey(gridId);
+  assert(Storage.has(gridKey), 'GRID_NOT_FOUND');
+
+  const grid = GridOrder.deserialize(Storage.get(gridKey));
+  const result = new Args();
+
+  result.add(grid.gridLevels); // Add level count first
+
+  for (let i: u64 = 0; i < grid.gridLevels; i++) {
+    const levelKey = _getGridLevelKey(gridId, i);
+    if (Storage.has(levelKey)) {
+      const level = GridLevel.deserialize(Storage.get(levelKey));
+      result.addBytes(level.serialize());
+    }
+  }
+
+  return result.serialize();
+}
+
+/**
+ * Get grids by token pair
+ * @param binaryArgs - Contains:
+ *  - tokenIn: string
+ *  - tokenOut: string
+ *  - limit: u64 - Max grids to return (optional, default 50)
+ */
+export function getGridsByTokenPair(binaryArgs: StaticArray<u8>): StaticArray<u8> {
+  const args = new Args(binaryArgs);
+  const tokenIn = args.nextString().expect('tokenIn missing');
+  const tokenOut = args.nextString().expect('tokenOut missing');
+  const limit = args.nextU64().unwrap_or(50);
+
+  const totalGrids = bytesToU64(Storage.get(GRID_ID_COUNTER));
+  const result = new Args();
+
+  let matchCount: u64 = 0;
+
+  for (let i: u64 = 1; i <= totalGrids && matchCount < limit; i++) {
+    const gridId = u256.fromU64(i);
+    const gridKey = _getGridKey(gridId);
+
+    if (Storage.has(gridKey)) {
+      const grid = GridOrder.deserialize(Storage.get(gridKey));
+      if (grid.tokenIn == tokenIn && grid.tokenOut == tokenOut && grid.active) {
+        if (matchCount == 0) {
+          result.add(matchCount + 1);
+        }
+        result.addBytes(grid.serialize());
+        matchCount++;
+      }
+    }
+  }
+
+  if (matchCount == 0) {
+    return new Args().add(u64(0)).serialize();
+  }
+
+  return result.serialize();
+}
+
+/**
+ * Get grid statistics
+ * @param binaryArgs - Contains:
+ *  - gridId: u256 - Grid ID
+ * @returns (totalLevels, idleLevels, buyPendingLevels, sellPendingLevels)
+ */
+export function getGridStats(binaryArgs: StaticArray<u8>): StaticArray<u8> {
+  const args = new Args(binaryArgs);
+  const gridId = args.nextU256().expect('gridId missing');
+
+  const gridKey = _getGridKey(gridId);
+  assert(Storage.has(gridKey), 'GRID_NOT_FOUND');
+
+  const grid = GridOrder.deserialize(Storage.get(gridKey));
+
+  let idleCount: u64 = 0;
+  let buyPendingCount: u64 = 0;
+  let sellPendingCount: u64 = 0;
+
+  for (let i: u64 = 0; i < grid.gridLevels; i++) {
+    const levelKey = _getGridLevelKey(gridId, i);
+    if (Storage.has(levelKey)) {
+      const level = GridLevel.deserialize(Storage.get(levelKey));
+
+      if (level.status == u8(GridLevelStatus.IDLE)) {
+        idleCount++;
+      } else if (level.status == u8(GridLevelStatus.BUY_PENDING)) {
+        buyPendingCount++;
+      } else if (level.status == u8(GridLevelStatus.SELL_PENDING)) {
+        sellPendingCount++;
+      }
+    }
+  }
+
+  return new Args()
+    .add(grid.gridLevels)
+    .add(idleCount)
+    .add(buyPendingCount)
+    .add(sellPendingCount)
+    .serialize();
+}
+
+/**
+ * Get cancelled grids count
+ */
+export function getCancelledGridsCount(_: StaticArray<u8>): StaticArray<u8> {
+  const totalGrids = bytesToU64(Storage.get(GRID_ID_COUNTER));
+  let cancelledCount: u64 = 0;
+
+  for (let i: u64 = 1; i <= totalGrids; i++) {
+    const gridId = u256.fromU64(i);
+    const gridKey = _getGridKey(gridId);
+
+    if (Storage.has(gridKey)) {
+      const grid = GridOrder.deserialize(Storage.get(gridKey));
+      if (!grid.active) {
+        cancelledCount++;
+      }
+    }
+  }
+
+  return new Args().add(cancelledCount).serialize();
+}
+
+/**
  * Internal: Initialize grid levels
  */
 function _initializeGridLevels(grid: GridOrder): void {

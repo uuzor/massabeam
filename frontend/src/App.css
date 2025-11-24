@@ -19,6 +19,11 @@ body {
   min-height: 100vh;
 }
 
+.app-landing {
+  display: block;
+  width: 100%;
+}
+
 .app-main {
   flex: 1;
   display: flex;
