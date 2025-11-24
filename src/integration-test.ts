@@ -213,6 +213,29 @@ async function main(): Promise<void> {
     log(`Total Liquidity: ${liquidity}`);
     logSuccess('Pool state retrieved');
 
+    // Query additional pool metadata
+    const poolMetadataBytes = await poolContract.read('getPoolMetadata', new Args());
+    const metadataArgs = new Args(poolMetadataBytes.value);
+    const token0 = metadataArgs.nextString();
+    const token1 = metadataArgs.nextString();
+    const feeRead = metadataArgs.nextU64();
+    const tickSpacingRead = metadataArgs.nextU64();
+    const factoryRead = metadataArgs.nextString();
+
+    log(`Pool Metadata:`);
+    log(`  Token0: ${token0}`);
+    log(`  Token1: ${token1}`);
+    log(`  Fee: ${feeRead}`);
+    log(`  Tick Spacing: ${tickSpacingRead}`);
+    log(`  Factory: ${factoryRead}`);
+    logSuccess('Pool metadata retrieved');
+
+    // Query fee growth
+    const feeGrowth0Bytes = await poolContract.read('getFeeGrowthGlobal0', new Args());
+    const feeGrowth1Bytes = await poolContract.read('getFeeGrowthGlobal1', new Args());
+    log(`Fee Growth Global0: ${new Args(feeGrowth0Bytes.value).nextU256()}`);
+    log(`Fee Growth Global1: ${new Args(feeGrowth1Bytes.value).nextU256()}`);
+
     // ========================================
     // STEP 4: Perform Initial Swap
     // ========================================
@@ -331,6 +354,45 @@ async function main(): Promise<void> {
     log(`  Filled: ${filled}`);
     log(`  Cancelled: ${cancelled}`);
     logSuccess('Order details retrieved');
+
+    // Query order status
+    const orderStatusBytes = await orderManagerContract.read(
+      'getOrderStatus',
+      new Args().addU256(ORDER_ID)
+    );
+    const orderStatus = new Args(orderStatusBytes.value).nextU8();
+    const statusText = ['Active', 'Filled', 'Cancelled', 'Expired'][orderStatus];
+    log(`Order Status: ${statusText} (${orderStatus})`);
+
+    // Query order statistics
+    const totalOrdersBytes = await orderManagerContract.read('getOrderCount', new Args());
+    const totalOrders = new Args(totalOrdersBytes.value).nextU64();
+
+    const activeOrdersBytes = await orderManagerContract.read('getActiveOrdersCount', new Args());
+    const activeOrders = new Args(activeOrdersBytes.value).nextU64();
+
+    const filledOrdersBytes = await orderManagerContract.read('getFilledOrdersCount', new Args());
+    const filledOrders = new Args(filledOrdersBytes.value).nextU64();
+
+    const pendingOrdersBytes = await orderManagerContract.read('getPendingOrdersCount', new Args());
+    const pendingOrders = new Args(pendingOrdersBytes.value).nextU64();
+
+    log(`Order Statistics:`);
+    log(`  Total Orders: ${totalOrders}`);
+    log(`  Active Orders: ${activeOrders}`);
+    log(`  Filled Orders: ${filledOrders}`);
+    log(`  Pending Orders: ${pendingOrders}`);
+    logSuccess('Order statistics retrieved');
+
+    // Query pending order IDs
+    const pendingOrderIdsBytes = await orderManagerContract.read('getPendingOrders', new Args());
+    const pendingArgs = new Args(pendingOrderIdsBytes.value);
+    const pendingCount = pendingArgs.nextU64();
+    log(`Pending Order IDs (${pendingCount}):`);
+    for (let i = 0; i < Number(pendingCount); i++) {
+      const pendingOrderId = pendingArgs.nextU256();
+      log(`  - Order ID: ${pendingOrderId}`);
+    }
 
     // ========================================
     // STEP 6: Trigger Swap for Limit Order
@@ -457,6 +519,81 @@ async function main(): Promise<void> {
 
       logSuccess('Grid order created');
 
+      // Query grid order details
+      const gridOrderBytes = await gridOrderManager.read(
+        'getGridOrder',
+        new Args().addU256(GRID_ID)
+      );
+      const gridArgs = new Args(gridOrderBytes.value);
+      const gridId = gridArgs.nextU256();
+      const gridOwner = gridArgs.nextString();
+      const gridTokenIn = gridArgs.nextString();
+      const gridTokenOut = gridArgs.nextString();
+      const gridLevelsRead = gridArgs.nextU64();
+      const gridLowerPrice = gridArgs.nextU256();
+      const gridUpperPrice = gridArgs.nextU256();
+      const gridAmountPerLevel = gridArgs.nextU256();
+      const gridActive = gridArgs.nextBool();
+
+      log(`Grid Order Details:`);
+      log(`  ID: ${gridId}`);
+      log(`  Owner: ${gridOwner}`);
+      log(`  Token In: ${gridTokenIn}`);
+      log(`  Token Out: ${gridTokenOut}`);
+      log(`  Levels: ${gridLevelsRead}`);
+      log(`  Price Range: ${gridLowerPrice} - ${gridUpperPrice}`);
+      log(`  Amount/Level: ${gridAmountPerLevel}`);
+      log(`  Active: ${gridActive}`);
+      logSuccess('Grid order details retrieved');
+
+      // Query grid statistics
+      const gridStatsBytes = await gridOrderManager.read(
+        'getGridStats',
+        new Args().addU256(GRID_ID)
+      );
+      const statsArgs = new Args(gridStatsBytes.value);
+      const totalLevels = statsArgs.nextU64();
+      const idleLevels = statsArgs.nextU64();
+      const buyPendingLevels = statsArgs.nextU64();
+      const sellPendingLevels = statsArgs.nextU64();
+
+      log(`Grid Statistics:`);
+      log(`  Total Levels: ${totalLevels}`);
+      log(`  Idle: ${idleLevels}`);
+      log(`  Buy Pending: ${buyPendingLevels}`);
+      log(`  Sell Pending: ${sellPendingLevels}`);
+      logSuccess('Grid statistics retrieved');
+
+      // Query all grid levels
+      const allLevelsBytes = await gridOrderManager.read(
+        'getAllGridLevels',
+        new Args().addU256(GRID_ID)
+      );
+      const levelsArgs = new Args(allLevelsBytes.value);
+      const levelCount = levelsArgs.nextU64();
+      log(`Grid Levels (${levelCount}):`);
+      for (let i = 0; i < Number(levelCount); i++) {
+        const levelBytes = levelsArgs.nextBytes();
+        const levelArgs = new Args(levelBytes);
+        const levelPrice = levelArgs.nextU256();
+        const levelAmount = levelArgs.nextU256();
+        const levelStatus = levelArgs.nextU8();
+        const levelLastFill = levelArgs.nextU64();
+        const statusStr = ['IDLE', 'BUY_PENDING', 'SELL_PENDING'][levelStatus];
+        log(`  Level ${i}: Price ${levelPrice}, Amount ${levelAmount}, Status ${statusStr}`);
+      }
+
+      // Query grid order statistics (global)
+      const gridCountBytes = await gridOrderManager.read('getGridCount', new Args());
+      const totalGrids = new Args(gridCountBytes.value).nextU64();
+
+      const activeGridsCountBytes = await gridOrderManager.read('getActiveGridsCount', new Args());
+      const activeGrids = new Args(activeGridsCountBytes.value).nextU64();
+
+      log(`Global Grid Statistics:`);
+      log(`  Total Grids: ${totalGrids}`);
+      log(`  Active Grids: ${activeGrids}`);
+
       // ========================================
       // STEP 9: Trigger Grid with Volatility
       // ========================================
@@ -523,6 +660,26 @@ async function main(): Promise<void> {
     const finalTick = finalStateArgs.nextI32();
     const finalLiquidity = finalStateArgs.nextU128();
 
+    // Query protocol fees
+    const protocolFeesBytes = await poolContract.read('getProtocolFees', new Args());
+    const protocolFeesArgs = new Args(protocolFeesBytes.value);
+    const protocolFee0 = protocolFeesArgs.nextU128();
+    const protocolFee1 = protocolFeesArgs.nextU128();
+
+    // Query factory from order manager
+    const orderFactoryBytes = await orderManagerContract.read('getFactoryAddress', new Args());
+    const orderFactory = new Args(orderFactoryBytes.value).nextString();
+
+    // Final order statistics
+    const finalTotalOrdersBytes = await orderManagerContract.read('getOrderCount', new Args());
+    const finalTotalOrders = new Args(finalTotalOrdersBytes.value).nextU64();
+
+    const finalActiveOrdersBytes = await orderManagerContract.read('getActiveOrdersCount', new Args());
+    const finalActiveOrders = new Args(finalActiveOrdersBytes.value).nextU64();
+
+    const finalFilledOrdersBytes = await orderManagerContract.read('getFilledOrdersCount', new Args());
+    const finalFilledOrders = new Args(finalFilledOrdersBytes.value).nextU64();
+
     log(`✅ Pool Created: ${POOL_ADDRESS}`);
     log(`✅ Liquidity Added: ${finalLiquidity}`);
     log(`✅ Swaps Executed: ${addresses.gridOrderManager ? '5' : '3'} total`);
@@ -535,10 +692,18 @@ async function main(): Promise<void> {
     log(`  Price: ${finalPrice}`);
     log(`  Tick: ${finalTick}`);
     log(`  Liquidity: ${finalLiquidity}`);
+    log(`  Protocol Fee 0: ${protocolFee0}`);
+    log(`  Protocol Fee 1: ${protocolFee1}`);
     log(``);
-    log(`Pending Limit Orders: ${pendingCount}`);
+    log(`Order Manager Statistics:`);
+    log(`  Factory: ${orderFactory}`);
+    log(`  Total Orders: ${finalTotalOrders}`);
+    log(`  Active Orders: ${finalActiveOrders}`);
+    log(`  Filled Orders: ${finalFilledOrders}`);
+    log(`  Pending Orders: ${pendingCount}`);
 
     logSuccess('\n🎊 ALL TESTS COMPLETED SUCCESSFULLY! 🎊');
+    logSuccess('All read functions verified and working!');
 
   } catch (error: any) {
     logError(`Test failed: ${error.message}`);
