@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import { web3 } from '@hicaru/bearby.js';
 import { Sidebar, Button } from './components';
 import { SwapPage } from './pages/SwapPage';
+import { OrdersPage } from './pages/OrdersPage';
 import { PoolsPage } from './dex/pages';
 import './App.css';
 
@@ -112,12 +113,7 @@ export default function App() {
           </div>
         );
       case 'orders':
-        return (
-          <div className="coming-soon">
-            <h2>Orders</h2>
-            <p>Limit orders, grid trading, and recurring buys coming soon</p>
-          </div>
-        );
+        return <OrdersPage />;
       case 'analytics':
         return (
           <div className="coming-soon">
