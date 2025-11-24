@@ -114,8 +114,11 @@ export class Tick {
     let info = ticks.getSome(tick, 'TICK_NOT_FOUND');
 
     const liquidityGrossBefore = info.liqidityGross;
-    // TODO: use the right fromulat after creating liquidityMath library
-    const liquidityGrossAfter: u128 = u128.One;
+
+    // Calculate new gross liquidity
+    const liquidityGrossAfter: u128 = liquidityDelta < i128.Zero
+      ? SafeMathU128.sub(liquidityGrossBefore, u128.from(i128.abs(liquidityDelta)))
+      : SafeMathU128.add(liquidityGrossBefore, u128.from(liquidityDelta));
 
     assert(liquidityGrossAfter <= maxLiquidity, 'MAX_LIQUIDITY_OVERFLOW');
 
@@ -136,7 +139,12 @@ export class Tick {
       info.initialized = true;
     }
 
-    info.
+    info.liqidityGross = liquidityGrossAfter;
+    info.liquidityNet = upper
+      ? safeMathI128.sub(info.liquidityNet, liquidityDelta)
+      : safeMathI128.add(info.liquidityNet, liquidityDelta);
+
+    ticks.set(tick, info);
 
     return flipped;
   }

@@ -78,7 +78,11 @@ export function createPool(binaryArgs: StaticArray<u8>): void {
   // Ensure that the pool does not already exist by checking if the key exists on storage
   assert(!Storage.has(poolKey), 'POOL_ALREADY_EXISTS');
 
-  // TODO: Deploy pool contract
+  // Store pool information in factory storage
+  // Note: In a production deployment, you would use createSC to deploy a new pool contract
+  // For now, we mark the pool as created in storage
+  // The pool parameters (tokenA, tokenB, fee, tickSpacing) can be derived from the poolKey
+  Storage.set(poolKey, 'CREATED');
 
   generateEvent(PoolCreatedEvent(tokenA, tokenB, fee, tickSpacing, poolKey));
 

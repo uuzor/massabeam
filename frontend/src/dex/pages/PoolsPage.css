@@ -1,0 +1,154 @@
+/**
+ * Pools Page Styles
+ */
+
+.pools-page {
+  min-height: 100vh;
+  background: #0D111C;
+  padding-bottom: 4rem;
+}
+
+/* Navigation */
+.pools-nav {
+  background: linear-gradient(135deg, #1a1d29 0%, #24283b 100%);
+  border-bottom: 1px solid #2c2f36;
+  padding: 1.5rem 0;
+  margin-bottom: 2rem;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: blur(10px);
+}
+
+.pools-nav-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1rem;
+  display: flex;
+  gap: 1rem;
+}
+
+.nav-tab {
+  flex: 1;
+  max-width: 200px;
+  padding: 1rem 1.5rem;
+  background: transparent;
+  border: 2px solid #2c2f36;
+  border-radius: 12px;
+  color: #98a1c0;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.nav-tab:hover {
+  border-color: #FC74FE;
+  transform: translateY(-2px);
+}
+
+.nav-tab.active {
+  background: linear-gradient(135deg, rgba(252, 116, 254, 0.1) 0%, rgba(99, 102, 241, 0.1) 100%);
+  border-color: #FC74FE;
+  color: #fff;
+}
+
+.tab-icon {
+  font-size: 1.25rem;
+}
+
+/* Content */
+.pools-content {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pools-section {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+/* Back Button */
+.back-button {
+  padding: 0.75rem 1.5rem;
+  margin-bottom: 2rem;
+  background: transparent;
+  border: 1px solid #2c2f36;
+  border-radius: 12px;
+  color: #98a1c0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.back-button:hover {
+  border-color: #FC74FE;
+  color: #FC74FE;
+  transform: translateX(-4px);
+}
+
+/* Info Banner */
+.pools-info-banner {
+  max-width: 1200px;
+  margin: 3rem auto 0;
+  padding: 0 1rem;
+}
+
+.info-banner-content {
+  display: flex;
+  gap: 1.5rem;
+  padding: 2rem;
+  background: linear-gradient(135deg, rgba(252, 116, 254, 0.05) 0%, rgba(99, 102, 241, 0.05) 100%);
+  border: 1px solid rgba(252, 116, 254, 0.2);
+  border-radius: 16px;
+}
+
+.info-icon {
+  font-size: 3rem;
+  flex-shrink: 0;
+}
+
+.info-text h4 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #FC74FE;
+  margin-bottom: 0.5rem;
+}
+
+.info-text p {
+  color: #98a1c0;
+  line-height: 1.6;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .pools-nav-container {
+    flex-direction: column;
+  }
+
+  .nav-tab {
+    max-width: none;
+  }
+
+  .info-banner-content {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+}
