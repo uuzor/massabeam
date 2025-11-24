@@ -203,10 +203,14 @@ export class SafeMathU256 {
     return c;
   }
 
-  static div(a: u256, b: u256): u256 {
-    assert(b > u256.Zero, 'SafeMathU256: division by zero');
-    const c = u256.div(a, b);
-
+   /**
+   * Division with zero check
+   * Returns a / b, reverts if b == 0
+   */
+   static div(a: u256, b: u256): u256 {
+    assert(u256.gt(b, u256.Zero), 'SafeMath256: division by zero');
+    const c = u256.fromU128(u128.div(u128.fromU256(a) , u128.fromU256(b)));
     return c;
   }
+
 }

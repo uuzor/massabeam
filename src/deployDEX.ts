@@ -10,7 +10,8 @@ import {
   Mas,
   SmartContract,
   JsonRpcProvider,
-  fromMAS,
+  parseMas,
+  formatMas
 } from '@massalabs/massa-web3';
 import { getScByteCode } from './utils';
 import * as fs from 'fs';
@@ -31,11 +32,11 @@ console.log('');
 const DEPLOYMENT_CONFIG = {
   factory: {
     coins: Mas.fromString('0.1'),
-    maxGas: BigInt(4_000_000_000),
+    maxGas: BigInt(3_000_000_000),
   },
   orderManager: {
     coins: Mas.fromString('0.1'),
-    maxGas: BigInt(4_000_000_000),
+    maxGas: BigInt(3_000_000_000),
   },
   enableFeeAmount: {
     maxGas: BigInt(2_000_000_000),
@@ -89,13 +90,13 @@ async function enableFeeAmounts(factoryAddress: string): Promise<void> {
         .addU64(BigInt(tier.fee))
         .addU64(BigInt(tier.tickSpacing));
 
-      await provider.callSmartContract({
-        targetAddress: factoryAddress,
-        functionName: 'enableFeeAmount',
+      await provider.callSC({
+        target: factoryAddress,
+        func: 'enableFeeAmount',
         parameter: args.serialize(),
         coins: 0n,
         maxGas: DEPLOYMENT_CONFIG.enableFeeAmount.maxGas,
-        fee: fromMAS(DEPLOYMENT_CONFIG.enableFeeAmount.fee),
+        fee: Mas.fromMas(DEPLOYMENT_CONFIG.enableFeeAmount.fee),
       });
 
       console.log(`  ✅ ${tier.label} enabled`);

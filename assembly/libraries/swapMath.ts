@@ -61,8 +61,8 @@ export function computeSwapStep(
  * Get 2^96 as u256
  */
 function getSqrtPrice96(): u256 {
-  const one = u256.One;
-  return one << 96;
+  const one = 1;
+  return u256.fromF64(one << 96);
 }
 
 /**

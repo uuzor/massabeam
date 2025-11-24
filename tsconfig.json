@@ -11,7 +11,7 @@
     },
     "include": ["./src/**/*.ts"], // Update the include path to match the actual location of your TypeScript files
     "exclude": ["node_modules"],
-    "experimentalDecorators": true,
+
     "ts-node": {
         "esm": true,
         "experimentalSpecifierResolution": "node"

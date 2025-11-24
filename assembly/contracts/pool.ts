@@ -43,9 +43,9 @@ const NATIVE_MAS_ADDRESS = 'NATIVE_MAS';
 function getSqrtPrice96(): u256 {
   // 2^96 = 79228162514264337593543950336
   // Create using bit shift: 1 << 96
-  const one = u256.One;
+  const one = 1;
   const shift96 = one << 96;
-  return shift96;
+  return u256.fromF64(shift96);
 }
 
 /**
