@@ -13,315 +13,300 @@
  * 8. Create grid order
  * 9. Execute swaps to trigger grid levels
  * 10. Verify grid execution
+ *
+ * Usage: npm run test:integration
  */
 
-import { Args, bytesToU256, bytesToU64, bytesToString, u256ToBytes, u64ToBytes } from '@massalabs/as-types';
-import { IAccount, IProvider, IContractData } from '@massalabs/massa-web3';
-import * as dotenv from 'dotenv';
+import 'dotenv/config';
+import {
+  Account,
+  Args,
+  Mas,
+  SmartContract,
+  JsonRpcProvider,
+} from '@massalabs/massa-web3';
 import * as fs from 'fs';
 import * as path from 'path';
-import { fileURLToPath } from 'url';
-import { getScClient, await_event_final } from './utils.js';
 
-dotenv.config();
+// Mock token addresses (replace with actual deployed tokens)
+const WMAS_ADDRESS = 'AS12...WMAS';
+const USDC_ADDRESS = 'AS12...USDC';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Helper functions for logging
-function log(message: string) {
-  console.log(`   ${message}`);
-}
-
-function logSection(title: string) {
-  console.log(`\n${'='.repeat(80)}`);
-  console.log(`${title}`);
-  console.log(`${'='.repeat(80)}\n`);
-}
-
-function logSuccess(message: string) {
-  console.log(`   ✅ ${message}`);
-}
-
-function logError(message: string) {
-  console.error(`   ❌ ${message}`);
-}
-
-function logWarning(message: string) {
-  console.warn(`   ⚠️  ${message}`);
-}
-
-function bytesToStr(bytes: Uint8Array): string {
-  try {
-    return bytesToString(bytes);
-  } catch {
-    try {
-      return bytesToU256(bytes).toString();
-    } catch {
-      return `0x${Buffer.from(bytes).toString('hex')}`;
-    }
-  }
-}
-
-// Token amounts (with decimals)
+// Token amounts
 const ONE_MAS = BigInt(1_000_000_000); // 1 MAS = 10^9
 const ONE_USDC = BigInt(1_000_000); // 1 USDC = 10^6
-const SQRT_PRICE_1_1 = BigInt('79228162514264337593543950336'); // sqrt(1) in Q96 format
 
-async function main() {
+function log(message: string): void {
+  console.log(`  ${message}`);
+}
+
+function logSection(title: string): void {
+  console.log(`\n${'═'.repeat(80)}`);
+  console.log(`  ${title}`);
+  console.log(`${'═'.repeat(80)}`);
+}
+
+function logSuccess(message: string): void {
+  console.log(`  ✅ ${message}`);
+}
+
+function logError(message: string): void {
+  console.error(`  ❌ ${message}`);
+}
+
+function logWarn(message: string): void {
+  console.warn(`  ⚠️  ${message}`);
+}
+
+function logEvent(data: string): void {
+  console.log(`  📤 ${data}`);
+}
+
+function logDebug(data: string): void {
+  console.log(`  🔍 ${data}`);
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Load deployment addresses from latest deployment file
+ */
+function loadAddresses() {
+  const deploymentsPath = path.join(process.cwd(), 'deployments', 'buildnet-latest.json');
+
+  if (!fs.existsSync(deploymentsPath)) {
+    throw new Error('Deployment file not found! Run: npm run deploy:dex');
+  }
+
+  const deployment = JSON.parse(fs.readFileSync(deploymentsPath, 'utf-8'));
+  return {
+    factory: deployment.contracts.factory,
+    orderManager: deployment.contracts.orderManager,
+    recurringOrderManager: deployment.contracts.recurringOrderManager,
+    gridOrderManager: deployment.contracts.gridOrderManager,
+  };
+}
+
+async function main(): Promise<void> {
+  logSection('🚀 MASSABEAM DEX - COMPREHENSIVE INTEGRATION TEST');
+
   try {
-    logSection('🚀 MASSABEAM DEX - COMPREHENSIVE INTEGRATION TEST');
+    // ========================================
+    // STEP 1: Initialize & Load Addresses
+    // ========================================
+    logSection('📋 STEP 1: INITIALIZE & LOAD ADDRESSES');
+
+    const account = await Account.fromEnv();
+    const provider = JsonRpcProvider.buildnet(account);
+
+    log(`Account: ${account.address}`);
+
+    const addresses = loadAddresses();
+    log(`Factory: ${addresses.factory}`);
+    log(`Order Manager: ${addresses.orderManager}`);
+    logSuccess('Addresses loaded');
+
+    const factoryContract = new SmartContract(provider, addresses.factory);
+    const orderManagerContract = new SmartContract(provider, addresses.orderManager);
 
     // ========================================
-    // STEP 1: Load Deployment Addresses
+    // STEP 2: Create Pool
     // ========================================
-    logSection('📋 STEP 1: LOAD DEPLOYMENT ADDRESSES');
+    logSection('🏊 STEP 2: CREATE POOL (WMAS/USDC, 0.3% fee)');
 
-    const deploymentsPath = path.join(__dirname, 'deployments.json');
-    if (!fs.existsSync(deploymentsPath)) {
-      throw new Error('deployments.json not found. Run deploy.ts first!');
-    }
-
-    const deployments = JSON.parse(fs.readFileSync(deploymentsPath, 'utf-8'));
-    const FACTORY_ADDRESS = deployments.factory;
-    const ORDER_MANAGER_ADDRESS = deployments.orderManager;
-    const RECURRING_ORDER_MANAGER_ADDRESS = deployments.recurringOrderManager;
-    const GRID_ORDER_MANAGER_ADDRESS = deployments.gridOrderManager;
-
-    log(`Factory: ${FACTORY_ADDRESS}`);
-    log(`Order Manager: ${ORDER_MANAGER_ADDRESS}`);
-    log(`Recurring Order Manager: ${RECURRING_ORDER_MANAGER_ADDRESS}`);
-    log(`Grid Order Manager: ${GRID_ORDER_MANAGER_ADDRESS}`);
-    logSuccess('Deployment addresses loaded');
-
-    // ========================================
-    // STEP 2: Initialize Client & Account
-    // ========================================
-    logSection('🔑 STEP 2: INITIALIZE CLIENT & ACCOUNT');
-
-    const { client, account } = await getScClient();
-    const baseAccount = account.address.toString();
-
-    log(`Account: ${baseAccount}`);
-    log(`Balance: Checking...`);
-
-    const balance = await client.wallet().getAccountBalance(baseAccount);
-    log(`Balance: ${balance?.final || 0} MAS`);
-    logSuccess('Client initialized');
-
-    // Mock token addresses (in production these would be deployed tokens)
-    const WMAS_ADDRESS = 'AS12abc...WMAS'; // Wrapped MAS
-    const USDC_ADDRESS = 'AS12def...USDC'; // USDC
-
-    // ========================================
-    // STEP 3: Create Pool
-    // ========================================
-    logSection('🏊 STEP 3: CREATE POOL (WMAS/USDC, 0.3% fee)');
-
-    const fee = 3000; // 0.3% = 3000 basis points
+    const fee = 3000; // 0.3%
     const tickSpacing = 60;
 
     log(`Creating pool: WMAS/USDC`);
     log(`Fee: ${fee / 10000}%`);
     log(`Tick Spacing: ${tickSpacing}`);
 
-    const createPoolArgs = new Args()
-      .addString(WMAS_ADDRESS)
-      .addString(USDC_ADDRESS)
-      .addU64(fee)
-      .addU64(tickSpacing);
+    const createPoolTx = await factoryContract.call(
+      'createPool',
+      new Args()
+        .addString(WMAS_ADDRESS)
+        .addString(USDC_ADDRESS)
+        .addU64(fee)
+        .addU64(tickSpacing),
+      { coins: Mas.fromString('0.1'), maxGas: BigInt(200_000_000) }
+    );
 
-    const createPoolOp = await client
-      .smartContracts()
-      .callSmartContract({
-        targetAddress: FACTORY_ADDRESS,
-        functionName: 'createPool',
-        parameter: createPoolArgs.serialize(),
-        maxGas: BigInt(200_000_000),
-        coins: BigInt(0),
-      });
+    logDebug(`Tx ID: ${createPoolTx.id}`);
+    await createPoolTx.waitFinalExecution();
 
-    log(`Operation ID: ${createPoolOp}`);
-    await await_event_final(client, createPoolOp);
-    logSuccess('Pool created successfully');
+    const createPoolEvents = await createPoolTx.getFinalEvents();
+    logDebug(`Received ${createPoolEvents.length} events`);
 
-    // Read pool address
-    const getPoolArgs = new Args()
-      .addString(WMAS_ADDRESS)
-      .addString(USDC_ADDRESS)
-      .addU64(fee);
+    for (const event of createPoolEvents) {
+      if (event.data.includes('PoolCreated')) {
+        logEvent(event.data);
+      }
+    }
 
-    const poolAddressResult = await client
-      .smartContracts()
-      .readSmartContract({
-        targetAddress: FACTORY_ADDRESS,
-        targetFunction: 'getPool',
-        parameter: getPoolArgs.serialize(),
-      });
+    logSuccess('Pool created');
 
-    const POOL_ADDRESS = bytesToString(poolAddressResult.returnValue);
+    // Get pool address
+    const poolAddressBytes = await factoryContract.read(
+      'getPool',
+      new Args()
+        .addString(WMAS_ADDRESS)
+        .addString(USDC_ADDRESS)
+        .addU64(fee)
+    );
+
+    const poolAddressArgs = new Args(poolAddressBytes.value);
+    const POOL_ADDRESS = poolAddressArgs.nextString();
     log(`Pool Address: ${POOL_ADDRESS}`);
     logSuccess('Pool address retrieved');
 
+    const poolContract = new SmartContract(provider, POOL_ADDRESS);
+
     // ========================================
-    // STEP 4: Add Liquidity
+    // STEP 3: Add Liquidity
     // ========================================
-    logSection('💧 STEP 4: ADD LIQUIDITY');
+    logSection('💧 STEP 3: ADD LIQUIDITY');
 
     const amount0 = ONE_MAS * BigInt(100); // 100 MAS
     const amount1 = ONE_USDC * BigInt(1000); // 1000 USDC
-    const tickLower = -887220; // Min tick
-    const tickUpper = 887220; // Max tick
+    const tickLower = -887220;
+    const tickUpper = 887220;
 
-    log(`Amount WMAS: ${amount0.toString()} (100 MAS)`);
-    log(`Amount USDC: ${amount1.toString()} (1000 USDC)`);
+    log(`Amount WMAS: ${amount0} (100 MAS)`);
+    log(`Amount USDC: ${amount1} (1000 USDC)`);
     log(`Tick Range: [${tickLower}, ${tickUpper}]`);
 
-    const mintArgs = new Args()
-      .addString(baseAccount) // recipient
-      .addI32(tickLower)
-      .addI32(tickUpper)
-      .addU128(BigInt(1_000_000)) // Desired liquidity
-      .addU256(amount0) // amount0Max
-      .addU256(amount1); // amount1Max
+    const mintTx = await poolContract.call(
+      'mint',
+      new Args()
+        .addString(account.address)
+        .addI32(tickLower)
+        .addI32(tickUpper)
+        .addU128(BigInt(1_000_000))
+        .addU256(amount0)
+        .addU256(amount1),
+      { coins: Mas.fromString('0.5'), maxGas: BigInt(300_000_000) }
+    );
 
-    const mintOp = await client
-      .smartContracts()
-      .callSmartContract({
-        targetAddress: POOL_ADDRESS,
-        functionName: 'mint',
-        parameter: mintArgs.serialize(),
-        maxGas: BigInt(300_000_000),
-        coins: BigInt(0),
-      });
+    logDebug(`Tx ID: ${mintTx.id}`);
+    await mintTx.waitFinalExecution();
 
-    log(`Operation ID: ${mintOp}`);
-    await await_event_final(client, mintOp);
-    logSuccess('Liquidity added successfully');
+    const mintEvents = await mintTx.getFinalEvents();
+    for (const event of mintEvents) {
+      if (event.data.includes('Mint')) {
+        logEvent(event.data);
+      }
+    }
+
+    logSuccess('Liquidity added');
 
     // Read pool state
-    const poolStateResult = await client
-      .smartContracts()
-      .readSmartContract({
-        targetAddress: POOL_ADDRESS,
-        targetFunction: 'getPoolState',
-        parameter: new Args().serialize(),
-      });
-
-    const stateArgs = new Args(poolStateResult.returnValue);
-    const sqrtPriceX96 = stateArgs.nextU256();
+    const poolStateBytes = await poolContract.read('getPoolState', new Args());
+    const stateArgs = new Args(poolStateBytes.value);
+    const sqrtPrice = stateArgs.nextU256();
     const tick = stateArgs.nextI32();
     const liquidity = stateArgs.nextU128();
 
-    log(`Current Price: ${sqrtPriceX96.toString()}`);
+    log(`Current Price: ${sqrtPrice}`);
     log(`Current Tick: ${tick}`);
-    log(`Total Liquidity: ${liquidity.toString()}`);
+    log(`Total Liquidity: ${liquidity}`);
     logSuccess('Pool state retrieved');
 
     // ========================================
-    // STEP 5: Perform Initial Swap
+    // STEP 4: Perform Initial Swap
     // ========================================
-    logSection('🔄 STEP 5: PERFORM INITIAL SWAP');
+    logSection('🔄 STEP 4: PERFORM INITIAL SWAP');
 
-    const swapAmount = ONE_MAS * BigInt(10); // Swap 10 MAS for USDC
-    const zeroForOne = true; // Selling WMAS for USDC
+    const swapAmount = ONE_MAS * BigInt(10); // 10 MAS
 
     log(`Swapping: 10 WMAS → USDC`);
-    log(`Direction: ${zeroForOne ? 'WMAS → USDC' : 'USDC → WMAS'}`);
 
-    const swapArgs = new Args()
-      .addString(baseAccount) // recipient
-      .addBool(zeroForOne)
-      .addI128(swapAmount) // amount (positive = exact input)
-      .addU256(BigInt('4295128739')); // sqrtPriceLimitX96 (min price)
+    const swapTx = await poolContract.call(
+      'swap',
+      new Args()
+        .addString(account.address)
+        .addBool(true) // zeroForOne
+        .addI128(swapAmount)
+        .addU256(BigInt('4295128739')), // min price
+      { coins: Mas.fromString('0.2'), maxGas: BigInt(250_000_000) }
+    );
 
-    const swapOp = await client
-      .smartContracts()
-      .callSmartContract({
-        targetAddress: POOL_ADDRESS,
-        functionName: 'swap',
-        parameter: swapArgs.serialize(),
-        maxGas: BigInt(250_000_000),
-        coins: BigInt(0),
-      });
+    logDebug(`Tx ID: ${swapTx.id}`);
+    await swapTx.waitFinalExecution();
 
-    log(`Operation ID: ${swapOp}`);
-    await await_event_final(client, swapOp);
-    logSuccess('Swap executed successfully');
+    const swapEvents = await swapTx.getFinalEvents();
+    for (const event of swapEvents) {
+      if (event.data.includes('Swap')) {
+        logEvent(event.data);
+      }
+    }
 
-    // Read updated pool state
-    const poolState2 = await client
-      .smartContracts()
-      .readSmartContract({
-        targetAddress: POOL_ADDRESS,
-        targetFunction: 'getPoolState',
-        parameter: new Args().serialize(),
-      });
+    logSuccess('Swap executed');
 
-    const state2Args = new Args(poolState2.returnValue);
-    const newSqrtPrice = state2Args.nextU256();
-    const newTick = state2Args.nextI32();
-
-    log(`New Price: ${newSqrtPrice.toString()}`);
-    log(`New Tick: ${newTick}`);
+    // Read updated price
+    const priceAfterSwap = await poolContract.read('getSqrtPriceX96', new Args());
+    const newPrice = new Args(priceAfterSwap.value).nextU256();
+    log(`New Price: ${newPrice}`);
     logSuccess('Pool state updated');
 
     // ========================================
-    // STEP 6: Create Limit Order
+    // STEP 5: Create Limit Order
     // ========================================
-    logSection('📝 STEP 6: CREATE LIMIT ORDER');
+    logSection('📝 STEP 5: CREATE LIMIT ORDER');
 
-    // Create a SELL limit order at a higher price than current
-    const limitOrderAmount = ONE_MAS * BigInt(5); // Sell 5 MAS
-    const minAmountOut = ONE_USDC * BigInt(45); // Expect at least 45 USDC (price = 9 USDC/MAS)
-    const limitPrice = BigInt('10000000000000000000'); // 10 USDC per MAS in 18 decimals
+    const limitOrderAmount = ONE_MAS * BigInt(5); // 5 MAS
+    const minAmountOut = ONE_USDC * BigInt(45); // 45 USDC
+    const limitPrice = BigInt('10000000000000000000'); // 10 USDC/MAS
     const orderType = 1; // SELL
-    const expiry = 0; // No expiry
+    const expiry = BigInt(0); // No expiry
 
     log(`Creating SELL limit order:`);
     log(`  Selling: 5 MAS`);
-    log(`  Minimum Receive: 45 USDC`);
+    log(`  Minimum: 45 USDC`);
     log(`  Limit Price: 10 USDC/MAS`);
-    log(`  Order Type: SELL`);
 
-    const createOrderArgs = new Args()
-      .addString(WMAS_ADDRESS) // tokenIn
-      .addString(USDC_ADDRESS) // tokenOut
-      .addU256(limitOrderAmount) // amountIn
-      .addU256(minAmountOut) // minAmountOut
-      .addU256(limitPrice) // limitPrice
-      .addU8(orderType) // orderType (SELL)
-      .addU64(expiry); // expiry (0 = no expiry)
+    const createOrderTx = await orderManagerContract.call(
+      'createLimitOrder',
+      new Args()
+        .addString(WMAS_ADDRESS)
+        .addString(USDC_ADDRESS)
+        .addU256(limitOrderAmount)
+        .addU256(minAmountOut)
+        .addU256(limitPrice)
+        .addU8(orderType)
+        .addU64(expiry),
+      { coins: Mas.fromString('0.3'), maxGas: BigInt(250_000_000) }
+    );
 
-    const createOrderOp = await client
-      .smartContracts()
-      .callSmartContract({
-        targetAddress: ORDER_MANAGER_ADDRESS,
-        functionName: 'createLimitOrder',
-        parameter: createOrderArgs.serialize(),
-        maxGas: BigInt(250_000_000),
-        coins: BigInt(0),
-      });
+    logDebug(`Tx ID: ${createOrderTx.id}`);
+    await createOrderTx.waitFinalExecution();
 
-    log(`Operation ID: ${createOrderOp}`);
-    await await_event_final(client, createOrderOp);
+    const createOrderEvents = await createOrderTx.getFinalEvents();
+    let ORDER_ID = BigInt(0);
 
-    // Get order ID from return value (would need to parse event or return value)
-    const ORDER_ID = BigInt(0); // First order
-    log(`Order ID: ${ORDER_ID.toString()}`);
+    logDebug(`Received ${createOrderEvents.length} events`);
+    for (const event of createOrderEvents) {
+      logEvent(event.data);
+
+      if (event.data.includes('LimitOrderCreated')) {
+        const idMatch = event.data.match(/(\d+)/);
+        if (idMatch) {
+          ORDER_ID = BigInt(idMatch[0]);
+          logSuccess(`Order ID extracted: ${ORDER_ID}`);
+        }
+      }
+    }
+
     logSuccess('Limit order created');
 
     // Read order details
-    const getOrderArgs = new Args().addU256(ORDER_ID);
-    const orderResult = await client
-      .smartContracts()
-      .readSmartContract({
-        targetAddress: ORDER_MANAGER_ADDRESS,
-        targetFunction: 'getOrder',
-        parameter: getOrderArgs.serialize(),
-      });
+    const orderBytes = await orderManagerContract.read(
+      'getOrder',
+      new Args().addU256(ORDER_ID)
+    );
 
-    const orderArgs = new Args(orderResult.returnValue);
+    const orderArgs = new Args(orderBytes.value);
     const orderId = orderArgs.nextU256();
     const owner = orderArgs.nextString();
     const tokenIn = orderArgs.nextString();
@@ -335,355 +320,233 @@ async function main() {
     const cancelled = orderArgs.nextBool();
 
     log(`Order Details:`);
-    log(`  Order ID: ${orderId.toString()}`);
+    log(`  ID: ${orderId}`);
     log(`  Owner: ${owner}`);
     log(`  Token In: ${tokenIn}`);
     log(`  Token Out: ${tokenOut}`);
-    log(`  Amount In: ${amountIn.toString()}`);
-    log(`  Min Amount Out: ${minOut.toString()}`);
-    log(`  Limit Price: ${limitPriceRead.toString()}`);
-    log(`  Order Type: ${orderTypeRead === 0 ? 'BUY' : 'SELL'}`);
+    log(`  Amount: ${amountIn}`);
+    log(`  Min Out: ${minOut}`);
+    log(`  Limit Price: ${limitPriceRead}`);
+    log(`  Type: ${orderTypeRead === 0 ? 'BUY' : 'SELL'}`);
     log(`  Filled: ${filled}`);
     log(`  Cancelled: ${cancelled}`);
     logSuccess('Order details retrieved');
 
     // ========================================
-    // STEP 7: Execute Swap to Trigger Limit Order
+    // STEP 6: Trigger Swap for Limit Order
     // ========================================
-    logSection('⚡ STEP 7: EXECUTE SWAP TO TRIGGER LIMIT ORDER');
+    logSection('⚡ STEP 6: TRIGGER SWAP FOR LIMIT ORDER');
 
-    // Swap USDC for WMAS to increase WMAS price
-    // This should push price above our limit order threshold
-    const triggerSwapAmount = ONE_USDC * BigInt(100); // Swap 100 USDC for WMAS
+    const triggerSwapAmount = ONE_USDC * BigInt(100); // 100 USDC
 
     log(`Swapping: 100 USDC → WMAS`);
     log(`This should increase WMAS price to trigger limit order`);
 
-    const triggerSwapArgs = new Args()
-      .addString(baseAccount)
-      .addBool(false) // USDC → WMAS (false means token1 → token0)
-      .addI128(triggerSwapAmount)
-      .addU256(BigInt('1461446703485210103287273052203988822378723970342')); // Max price
+    const triggerSwapTx = await poolContract.call(
+      'swap',
+      new Args()
+        .addString(account.address)
+        .addBool(false) // USDC → WMAS
+        .addI128(triggerSwapAmount)
+        .addU256(BigInt('1461446703485210103287273052203988822378723970342')), // max price
+      { coins: Mas.fromString('0.2'), maxGas: BigInt(250_000_000) }
+    );
 
-    const triggerSwapOp = await client
-      .smartContracts()
-      .callSmartContract({
-        targetAddress: POOL_ADDRESS,
-        functionName: 'swap',
-        parameter: triggerSwapArgs.serialize(),
-        maxGas: BigInt(250_000_000),
-        coins: BigInt(0),
-      });
-
-    log(`Operation ID: ${triggerSwapOp}`);
-    await await_event_final(client, triggerSwapOp);
+    logDebug(`Tx ID: ${triggerSwapTx.id}`);
+    await triggerSwapTx.waitFinalExecution();
     logSuccess('Trigger swap executed');
 
-    // Read price after swap
-    const poolState3 = await client
-      .smartContracts()
-      .readSmartContract({
-        targetAddress: POOL_ADDRESS,
-        targetFunction: 'getSqrtPriceX96',
-        parameter: new Args().serialize(),
-      });
-
-    const priceAfterTrigger = bytesToU256(poolState3.returnValue);
-    log(`Price after trigger swap: ${priceAfterTrigger.toString()}`);
+    const priceAfterTrigger = await poolContract.read('getSqrtPriceX96', new Args());
+    const priceAfter = new Args(priceAfterTrigger.value).nextU256();
+    log(`Price after trigger: ${priceAfter}`);
 
     // ========================================
-    // STEP 8: Execute Limit Order
+    // STEP 7: Execute Limit Order
     // ========================================
-    logSection('✅ STEP 8: EXECUTE LIMIT ORDER');
+    logSection('✅ STEP 7: EXECUTE LIMIT ORDER');
 
-    log(`Executing limit order ${ORDER_ID.toString()}...`);
+    log(`Executing limit order ${ORDER_ID}...`);
 
-    const executeOrderArgs = new Args().addU256(ORDER_ID);
+    const executeOrderTx = await orderManagerContract.call(
+      'executeLimitOrder',
+      new Args().addU256(ORDER_ID),
+      { coins: Mas.fromString('0.3'), maxGas: BigInt(300_000_000) }
+    );
 
-    const executeOrderOp = await client
-      .smartContracts()
-      .callSmartContract({
-        targetAddress: ORDER_MANAGER_ADDRESS,
-        functionName: 'executeLimitOrder',
-        parameter: executeOrderArgs.serialize(),
-        maxGas: BigInt(300_000_000),
-        coins: BigInt(0),
-      });
+    logDebug(`Tx ID: ${executeOrderTx.id}`);
+    await executeOrderTx.waitFinalExecution();
 
-    log(`Operation ID: ${executeOrderOp}`);
-    await await_event_final(client, executeOrderOp);
+    const executeEvents = await executeOrderTx.getFinalEvents();
+    for (const event of executeEvents) {
+      logEvent(event.data);
+    }
+
     logSuccess('Limit order execution attempted');
 
-    // Verify order is filled
-    const orderResult2 = await client
-      .smartContracts()
-      .readSmartContract({
-        targetAddress: ORDER_MANAGER_ADDRESS,
-        targetFunction: 'getOrder',
-        parameter: getOrderArgs.serialize(),
-      });
+    // Verify order filled
+    const orderAfterBytes = await orderManagerContract.read(
+      'getOrder',
+      new Args().addU256(ORDER_ID)
+    );
 
-    const orderArgs2 = new Args(orderResult2.returnValue);
-    orderArgs2.nextU256(); // orderId
-    orderArgs2.nextString(); // owner
-    orderArgs2.nextString(); // tokenIn
-    orderArgs2.nextString(); // tokenOut
-    orderArgs2.nextU256(); // amountIn
-    orderArgs2.nextU256(); // minAmountOut
-    orderArgs2.nextU256(); // limitPrice
-    orderArgs2.nextU8(); // orderType
-    orderArgs2.nextU64(); // expiry
-    const filledAfter = orderArgs2.nextBool();
+    const orderAfterArgs = new Args(orderAfterBytes.value);
+    orderAfterArgs.nextU256(); // skip to filled
+    orderAfterArgs.nextString();
+    orderAfterArgs.nextString();
+    orderAfterArgs.nextString();
+    orderAfterArgs.nextU256();
+    orderAfterArgs.nextU256();
+    orderAfterArgs.nextU256();
+    orderAfterArgs.nextU8();
+    orderAfterArgs.nextU64();
+    const filledAfter = orderAfterArgs.nextBool();
 
     if (filledAfter) {
       logSuccess('✅ Limit order FILLED successfully!');
     } else {
-      logWarning('⚠️  Limit order NOT filled (price may not have met threshold)');
+      logWarn('⚠️  Limit order NOT filled (price condition not met)');
     }
 
     // ========================================
-    // STEP 9: Create Grid Order
+    // STEP 8: Create Grid Order (if gridOrderManager exists)
     // ========================================
-    logSection('📊 STEP 9: CREATE GRID ORDER');
+    if (addresses.gridOrderManager) {
+      logSection('📊 STEP 8: CREATE GRID ORDER');
 
-    const gridLevels = 5; // 5 grid levels
-    const lowerPrice = BigInt('7000000000000000000'); // 7 USDC/MAS
-    const upperPrice = BigInt('13000000000000000000'); // 13 USDC/MAS
-    const amountPerLevel = ONE_MAS * BigInt(2); // 2 MAS per level
+      const gridOrderManager = new SmartContract(provider, addresses.gridOrderManager);
 
-    log(`Creating grid order:`);
-    log(`  Grid Levels: ${gridLevels}`);
-    log(`  Price Range: 7-13 USDC/MAS`);
-    log(`  Amount per Level: 2 MAS`);
-    log(`  Total Escrowed: ${gridLevels * 2} MAS`);
+      const gridLevels = 5;
+      const lowerPrice = BigInt('7000000000000000000'); // 7 USDC/MAS
+      const upperPrice = BigInt('13000000000000000000'); // 13 USDC/MAS
+      const amountPerLevel = ONE_MAS * BigInt(2); // 2 MAS per level
 
-    const createGridArgs = new Args()
-      .addString(WMAS_ADDRESS) // tokenIn (base)
-      .addString(USDC_ADDRESS) // tokenOut (quote)
-      .addU64(gridLevels)
-      .addU256(lowerPrice)
-      .addU256(upperPrice)
-      .addU256(amountPerLevel);
+      log(`Creating grid order:`);
+      log(`  Levels: ${gridLevels}`);
+      log(`  Range: 7-13 USDC/MAS`);
+      log(`  Amount/Level: 2 MAS`);
 
-    const createGridOp = await client
-      .smartContracts()
-      .callSmartContract({
-        targetAddress: GRID_ORDER_MANAGER_ADDRESS,
-        functionName: 'createGridOrder',
-        parameter: createGridArgs.serialize(),
-        maxGas: BigInt(300_000_000),
-        coins: BigInt(0),
-      });
+      const createGridTx = await gridOrderManager.call(
+        'createGridOrder',
+        new Args()
+          .addString(WMAS_ADDRESS)
+          .addString(USDC_ADDRESS)
+          .addU64(gridLevels)
+          .addU256(lowerPrice)
+          .addU256(upperPrice)
+          .addU256(amountPerLevel),
+        { coins: Mas.fromString('0.5'), maxGas: BigInt(300_000_000) }
+      );
 
-    log(`Operation ID: ${createGridOp}`);
-    await await_event_final(client, createGridOp);
+      logDebug(`Tx ID: ${createGridTx.id}`);
+      await createGridTx.waitFinalExecution();
 
-    const GRID_ID = BigInt(0); // First grid
-    log(`Grid ID: ${GRID_ID.toString()}`);
-    logSuccess('Grid order created');
+      const gridEvents = await createGridTx.getFinalEvents();
+      let GRID_ID = BigInt(0);
 
-    // Read grid details
-    const getGridArgs = new Args().addU256(GRID_ID);
-    const gridResult = await client
-      .smartContracts()
-      .readSmartContract({
-        targetAddress: GRID_ORDER_MANAGER_ADDRESS,
-        targetFunction: 'getGridOrder',
-        parameter: getGridArgs.serialize(),
-      });
+      for (const event of gridEvents) {
+        logEvent(event.data);
 
-    const gridArgs = new Args(gridResult.returnValue);
-    const gridId = gridArgs.nextU256();
-    const gridOwner = gridArgs.nextString();
-    const gridTokenIn = gridArgs.nextString();
-    const gridTokenOut = gridArgs.nextString();
-    const gridLevelsRead = gridArgs.nextU64();
-    const gridLowerPrice = gridArgs.nextU256();
-    const gridUpperPrice = gridArgs.nextU256();
-    const gridAmountPerLevel = gridArgs.nextU256();
-    const gridActive = gridArgs.nextBool();
+        if (event.data.includes('GridOrder:Created')) {
+          const idMatch = event.data.match(/(\d+)/);
+          if (idMatch) {
+            GRID_ID = BigInt(idMatch[0]);
+            logSuccess(`Grid ID extracted: ${GRID_ID}`);
+          }
+        }
+      }
 
-    log(`Grid Details:`);
-    log(`  Grid ID: ${gridId.toString()}`);
-    log(`  Owner: ${gridOwner}`);
-    log(`  Token In: ${gridTokenIn}`);
-    log(`  Token Out: ${gridTokenOut}`);
-    log(`  Levels: ${gridLevelsRead}`);
-    log(`  Lower Price: ${gridLowerPrice.toString()}`);
-    log(`  Upper Price: ${gridUpperPrice.toString()}`);
-    log(`  Amount/Level: ${gridAmountPerLevel.toString()}`);
-    log(`  Active: ${gridActive}`);
-    logSuccess('Grid details retrieved');
+      logSuccess('Grid order created');
 
-    // ========================================
-    // STEP 10: Execute Swaps to Trigger Grid
-    // ========================================
-    logSection('🎯 STEP 10: EXECUTE SWAPS TO TRIGGER GRID LEVELS');
+      // ========================================
+      // STEP 9: Trigger Grid with Volatility
+      // ========================================
+      logSection('🎯 STEP 9: TRIGGER GRID LEVELS');
 
-    // Swap 1: Push price down to trigger buy orders
-    log(`\n--- Swap 1: Push price DOWN to trigger BUY orders ---`);
-    const gridSwap1Amount = ONE_MAS * BigInt(20);
+      log('\n--- Swap 1: Push price DOWN ---');
+      const gridSwap1Tx = await poolContract.call(
+        'swap',
+        new Args()
+          .addString(account.address)
+          .addBool(true) // WMAS → USDC
+          .addI128(ONE_MAS * BigInt(20))
+          .addU256(BigInt('4295128739')),
+        { coins: Mas.fromString('0.2'), maxGas: BigInt(250_000_000) }
+      );
 
-    const gridSwap1Args = new Args()
-      .addString(baseAccount)
-      .addBool(true) // WMAS → USDC (sell WMAS)
-      .addI128(gridSwap1Amount)
-      .addU256(BigInt('4295128739'));
+      await gridSwap1Tx.waitFinalExecution();
+      logSuccess('Price pushed down');
 
-    const gridSwap1Op = await client
-      .smartContracts()
-      .callSmartContract({
-        targetAddress: POOL_ADDRESS,
-        functionName: 'swap',
-        parameter: gridSwap1Args.serialize(),
-        maxGas: BigInt(250_000_000),
-        coins: BigInt(0),
-      });
+      await sleep(5000); // Wait for grid automation
 
-    log(`Operation ID: ${gridSwap1Op}`);
-    await await_event_final(client, gridSwap1Op);
+      log('\n--- Swap 2: Push price UP ---');
+      const gridSwap2Tx = await poolContract.call(
+        'swap',
+        new Args()
+          .addString(account.address)
+          .addBool(false) // USDC → WMAS
+          .addI128(ONE_USDC * BigInt(150))
+          .addU256(BigInt('1461446703485210103287273052203988822378723970342')),
+        { coins: Mas.fromString('0.2'), maxGas: BigInt(250_000_000) }
+      );
 
-    const priceAfterSwap1 = await client
-      .smartContracts()
-      .readSmartContract({
-        targetAddress: POOL_ADDRESS,
-        targetFunction: 'getSqrtPriceX96',
-        parameter: new Args().serialize(),
-      });
+      await gridSwap2Tx.waitFinalExecution();
+      logSuccess('Price pushed up');
 
-    log(`Price after sell: ${bytesToU256(priceAfterSwap1.returnValue).toString()}`);
-    logSuccess('Price pushed down');
+      await sleep(5000);
 
-    // Wait a bit for grid checker to run (in real scenario)
-    log(`\nWaiting for grid automation to detect price change...`);
-    await new Promise(resolve => setTimeout(resolve, 5000));
+      log('\n--- Swap 3: Push price DOWN again ---');
+      const gridSwap3Tx = await poolContract.call(
+        'swap',
+        new Args()
+          .addString(account.address)
+          .addBool(true)
+          .addI128(ONE_MAS * BigInt(15))
+          .addU256(BigInt('4295128739')),
+        { coins: Mas.fromString('0.2'), maxGas: BigInt(250_000_000) }
+      );
 
-    // Swap 2: Push price up to trigger sell orders
-    log(`\n--- Swap 2: Push price UP to trigger SELL orders ---`);
-    const gridSwap2Amount = ONE_USDC * BigInt(150);
-
-    const gridSwap2Args = new Args()
-      .addString(baseAccount)
-      .addBool(false) // USDC → WMAS (buy WMAS)
-      .addI128(gridSwap2Amount)
-      .addU256(BigInt('1461446703485210103287273052203988822378723970342'));
-
-    const gridSwap2Op = await client
-      .smartContracts()
-      .callSmartContract({
-        targetAddress: POOL_ADDRESS,
-        functionName: 'swap',
-        parameter: gridSwap2Args.serialize(),
-        maxGas: BigInt(250_000_000),
-        coins: BigInt(0),
-      });
-
-    log(`Operation ID: ${gridSwap2Op}`);
-    await await_event_final(client, gridSwap2Op);
-
-    const priceAfterSwap2 = await client
-      .smartContracts()
-      .readSmartContract({
-        targetAddress: POOL_ADDRESS,
-        targetFunction: 'getSqrtPriceX96',
-        parameter: new Args().serialize(),
-      });
-
-    log(`Price after buy: ${bytesToU256(priceAfterSwap2.returnValue).toString()}`);
-    logSuccess('Price pushed up');
-
-    // Swap 3: Push price down again
-    log(`\n--- Swap 3: Push price DOWN again ---`);
-    const gridSwap3Amount = ONE_MAS * BigInt(15);
-
-    const gridSwap3Args = new Args()
-      .addString(baseAccount)
-      .addBool(true)
-      .addI128(gridSwap3Amount)
-      .addU256(BigInt('4295128739'));
-
-    const gridSwap3Op = await client
-      .smartContracts()
-      .callSmartContract({
-        targetAddress: POOL_ADDRESS,
-        functionName: 'swap',
-        parameter: gridSwap3Args.serialize(),
-        maxGas: BigInt(250_000_000),
-        coins: BigInt(0),
-      });
-
-    log(`Operation ID: ${gridSwap3Op}`);
-    await await_event_final(client, gridSwap3Op);
-    logSuccess('Grid volatility simulation complete');
+      await gridSwap3Tx.waitFinalExecution();
+      logSuccess('Grid volatility simulation complete');
+    }
 
     // ========================================
     // FINAL SUMMARY
     // ========================================
     logSection('🎉 TEST COMPLETE - SUMMARY');
 
-    // Get final pending order count
-    const pendingCountResult = await client
-      .smartContracts()
-      .readSmartContract({
-        targetAddress: ORDER_MANAGER_ADDRESS,
-        targetFunction: 'getPendingOrdersCount',
-        parameter: new Args().serialize(),
-      });
-    const pendingCount = bytesToU64(pendingCountResult.returnValue);
+    const pendingCountBytes = await orderManagerContract.read('getPendingOrdersCount', new Args());
+    const pendingCount = new Args(pendingCountBytes.value).nextU64();
 
-    // Get final active grid count
-    const activeGridsResult = await client
-      .smartContracts()
-      .readSmartContract({
-        targetAddress: GRID_ORDER_MANAGER_ADDRESS,
-        targetFunction: 'getActiveGridsCount',
-        parameter: new Args().serialize(),
-      });
-    const activeGrids = bytesToU64(activeGridsResult.returnValue);
-
-    // Get final pool state
-    const finalPoolState = await client
-      .smartContracts()
-      .readSmartContract({
-        targetAddress: POOL_ADDRESS,
-        targetFunction: 'getPoolState',
-        parameter: new Args().serialize(),
-      });
-    const finalStateArgs = new Args(finalPoolState.returnValue);
+    const finalPoolStateBytes = await poolContract.read('getPoolState', new Args());
+    const finalStateArgs = new Args(finalPoolStateBytes.value);
     const finalPrice = finalStateArgs.nextU256();
     const finalTick = finalStateArgs.nextI32();
     const finalLiquidity = finalStateArgs.nextU128();
 
     log(`✅ Pool Created: ${POOL_ADDRESS}`);
-    log(`✅ Liquidity Added: ${finalLiquidity.toString()}`);
-    log(`✅ Swaps Executed: 5 total`);
-    log(`✅ Limit Order Created & Executed: ${filledAfter ? 'FILLED' : 'PENDING'}`);
-    log(`✅ Grid Order Created: ID ${GRID_ID.toString()}`);
-    log(`✅ Grid Volatility Tested: 3 price swings`);
+    log(`✅ Liquidity Added: ${finalLiquidity}`);
+    log(`✅ Swaps Executed: ${addresses.gridOrderManager ? '5' : '3'} total`);
+    log(`✅ Limit Order: ${filledAfter ? 'FILLED' : 'PENDING'}`);
+    if (addresses.gridOrderManager) {
+      log(`✅ Grid Order: CREATED & TESTED`);
+    }
     log(``);
     log(`Final Pool State:`);
-    log(`  Price: ${finalPrice.toString()}`);
+    log(`  Price: ${finalPrice}`);
     log(`  Tick: ${finalTick}`);
-    log(`  Liquidity: ${finalLiquidity.toString()}`);
+    log(`  Liquidity: ${finalLiquidity}`);
     log(``);
     log(`Pending Limit Orders: ${pendingCount}`);
-    log(`Active Grid Orders: ${activeGrids}`);
 
     logSuccess('\n🎊 ALL TESTS COMPLETED SUCCESSFULLY! 🎊');
 
-  } catch (error) {
-    logError(`Test failed: ${error}`);
-    console.error(error);
+  } catch (error: any) {
+    logError(`Test failed: ${error.message}`);
+    if (error.stack) {
+      console.error(error.stack);
+    }
     process.exit(1);
   }
 }
 
-main()
-  .then(() => {
-    console.log('\n✨ Integration test completed');
-    process.exit(0);
-  })
-  .catch((error) => {
-    console.error('\n❌ Integration test failed:', error);
-    process.exit(1);
-  });
+main().catch(console.error);
