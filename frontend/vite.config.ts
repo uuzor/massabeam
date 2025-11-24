@@ -6,5 +6,17 @@ export default defineConfig({
   resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
   plugins: [react()],
   logLevel: 'error',
-  server: { hmr: { overlay: false } }
+  server: { hmr: { overlay: false } },
+  optimizeDeps: {
+    exclude: ['@massalabs/as-types'],
+    esbuildOptions: {
+      // Ignore assembly files
+      exclude: ['**/*.as.ts', '**/assembly/**']
+    }
+  },
+  build: {
+    commonjsOptions: {
+      exclude: ['**/*.as.ts', '**/assembly/**']
+    }
+  }
 })

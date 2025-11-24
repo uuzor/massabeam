@@ -724,6 +724,68 @@ export function collect(binaryArgs: StaticArray<u8>): void {
   ReentrancyGuard.endNonReentrant();
 }
 
+/**
+ * Get current sqrt price
+ */
+export function getSqrtPriceX96(_: StaticArray<u8>): StaticArray<u8> {
+  const state = PoolState.load();
+  return u256ToBytes(state.sqrtPriceX96);
+}
+
+/**
+ * Get current tick
+ */
+export function getTick(_: StaticArray<u8>): StaticArray<u8> {
+  const state = PoolState.load();
+  return new Args().add(state.tick).serialize();
+}
+
+/**
+ * Get current liquidity
+ */
+export function getLiquidity(_: StaticArray<u8>): StaticArray<u8> {
+  const state = PoolState.load();
+  return u128ToBytes(state.liquidity);
+}
+
+/**
+ * Get pool tokens
+ */
+export function getTokens(_: StaticArray<u8>): StaticArray<u8> {
+  const token0 = Storage.get(TOKEN_0);
+  const token1 = Storage.get(TOKEN_1);
+  return new Args()
+    .add(token0)
+    .add(token1)
+    .serialize();
+}
+
+/**
+ * Get pool fee
+ */
+export function getFee(_: StaticArray<u8>): StaticArray<u8> {
+  return Storage.get(FEE);
+}
+
+/**
+ * Get complete pool state (for external queries)
+ */
+export function getPoolState(_: StaticArray<u8>): StaticArray<u8> {
+  const state = PoolState.load();
+  const token0 = Storage.get(TOKEN_0);
+  const token1 = Storage.get(TOKEN_1);
+  const fee = bytesToU64(Storage.get(FEE));
+
+  return new Args()
+    .add(state.sqrtPriceX96)
+    .add(state.tick)
+    .add(state.liquidity)
+    .add(token0)
+    .add(token1)
+    .add(fee)
+    .serialize();
+}
+
 /* Internals */
 
 function _getFactoryOwner(
