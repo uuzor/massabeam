@@ -132,12 +132,62 @@ async function deployOrderManager(factoryAddress: string): Promise<string> {
   return contract.address;
 }
 
+
+async function deployGridOrderManager(factoryAddress: string): Promise<string> {
+  console.log('\n📦 Deploying OrderManager Contract...');
+
+  const byteCode = getScByteCode('build', 'gridOrderManager.wasm');
+
+  // OrderManager constructor needs factory address
+  const constructorArgs = new Args()
+    .addString(factoryAddress);
+
+  const contract = await SmartContract.deploy(
+    provider,
+    byteCode,
+    constructorArgs,
+    {
+      coins: DEPLOYMENT_CONFIG.orderManager.coins,
+      maxGas: DEPLOYMENT_CONFIG.orderManager.maxGas,
+    },
+  );
+
+  console.log('✅ OrderManager deployed at:', contract.address);
+  return contract.address;
+}
+
+
+async function deployRecurringOrderManager(factoryAddress: string): Promise<string> {
+  console.log('\n📦 Deploying OrderManager Contract...');
+
+  const byteCode = getScByteCode('build', 'recurringOrderManager.wasm');
+
+  // OrderManager constructor needs factory address
+  const constructorArgs = new Args()
+    .addString(factoryAddress);
+
+  const contract = await SmartContract.deploy(
+    provider,
+    byteCode,
+    constructorArgs,
+    {
+      coins: DEPLOYMENT_CONFIG.orderManager.coins,
+      maxGas: DEPLOYMENT_CONFIG.orderManager.maxGas,
+    },
+  );
+
+  console.log('✅ OrderManager deployed at:', contract.address);
+  return contract.address;
+}
+
 /**
  * Save deployment addresses to file
  */
 function saveDeploymentInfo(
   factoryAddress: string,
   orderManagerAddress: string,
+  recurringOrderManager : string,
+  gridOrderManager : string
 ): void {
   const deploymentInfo = {
     network: 'buildnet',
@@ -146,6 +196,8 @@ function saveDeploymentInfo(
     contracts: {
       factory: factoryAddress,
       orderManager: orderManagerAddress,
+      recurringOrderManager: recurringOrderManager,
+      gridOrderManager: gridOrderManager
     },
     feeTiers: FEE_TIERS,
   };
@@ -201,8 +253,12 @@ async function main() {
     // Step 3: Deploy OrderManager
     const orderManagerAddress = await deployOrderManager(factoryAddress);
 
+    const recurringOrderManager = await deployRecurringOrderManager(factoryAddress);
+
+    const gridOrderManager = await deployGridOrderManager(factoryAddress);
+
     // Step 4: Save deployment info
-    saveDeploymentInfo(factoryAddress, orderManagerAddress);
+    saveDeploymentInfo(factoryAddress, orderManagerAddress, recurringOrderManager, gridOrderManager);
 
     // Step 5: Create frontend env file
     createFrontendEnv(factoryAddress, orderManagerAddress);

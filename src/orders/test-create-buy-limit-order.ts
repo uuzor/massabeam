@@ -14,6 +14,7 @@ import {
   Mas,
   SmartContract,
   JsonRpcProvider,
+  USDCe
 } from '@massalabs/massa-web3';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -24,8 +25,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Example token addresses (replace with actual deployed tokens)
-const USDC_TOKEN = 'AS13...'; // Token being sold (tokenIn)
-const WMAS_TOKEN = 'AS12...'; // Token being bought (tokenOut)
+// Token addresses
+const TOKEN_A = 'AS1nDAemyLSLUuNZ747Dt3NgzEC9WGCkmjRvY9hZwW2928Fxb4Fk'; // USDC
+const TOKEN_B = ""; // Second token
 
 // Order Type Enum
 const OrderType = {
