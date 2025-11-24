@@ -8,15 +8,6 @@ export default defineConfig({
   logLevel: 'error',
   server: { hmr: { overlay: false } },
   optimizeDeps: {
-    exclude: ['@massalabs/as-types'],
-    esbuildOptions: {
-      // Ignore assembly files
-      exclude: ['**/*.as.ts', '**/assembly/**']
-    }
-  },
-  build: {
-    commonjsOptions: {
-      exclude: ['**/*.as.ts', '**/assembly/**']
-    }
+    exclude: ['@massalabs/as-types']
   }
 })

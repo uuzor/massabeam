@@ -35,9 +35,9 @@ export function PoolCard({ pool, onClick }: PoolCardProps) {
       <div className="pool-card-header">
         <div className="pool-tokens">
           <div className="token-pair">
-            <span className="token-symbol">{pool.token0.symbol}</span>
+            <span className="token-symbol">{pool.token0?.symbol || "mas"}</span>
             <span className="token-separator">/</span>
-            <span className="token-symbol">{pool.token1.symbol}</span>
+            <span className="token-symbol">{pool.token1?.symbol || "mas"}</span>
           </div>
           <div className="fee-badge">{feeTierLabel}</div>
         </div>
@@ -47,7 +47,7 @@ export function PoolCard({ pool, onClick }: PoolCardProps) {
             {pool.token0Price.toFixed(6)}
           </div>
           <div className="price-label">
-            {pool.token1.symbol} per {pool.token0.symbol}
+            {pool.token1?.symbol || "mas"} per {pool.token0?.symbol || "mas"}
           </div>
         </div>
       </div>
