@@ -4,8 +4,8 @@
  */
 
 import { useState, useCallback } from 'react';
-import { Args, bytesToU256 } from '@massalabs/as-types';
-import { web3, PublicAPI } from '../utils/contracts';
+import { Args, PublicAPI } from '@massalabs/massa-web3';
+import { web3 } from '@hicaru/bearby.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://buildnet.massa.net/api/v2';
 const DEFAULT_FEE = BigInt(100_000_000);

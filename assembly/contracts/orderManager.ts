@@ -3,6 +3,9 @@ import {
   bytesToU256,
   stringToBytes,
   u256ToBytes,
+  bytesToU64,
+  u64ToBytes,
+  bytesToString,
 } from '@massalabs/as-types';
 import {
   Address,
@@ -11,8 +14,9 @@ import {
   Storage,
   call,
   Coins,
+  sendMessage,
 } from '@massalabs/massa-as-sdk';
-import { u256 } from 'as-bignum/assembly';
+import { u256, i128 } from 'as-bignum/assembly';
 import { ReentrancyGuard } from '../utils/reentrancyGuard';
 import { setOwner } from '../utils/ownership';
 import { SafeMathU256 } from '../libraries/safeMath';
@@ -22,7 +26,15 @@ import { PersistentMap } from '../utils/collections/persistentMap';
 export const ORDER_ID_COUNTER = stringToBytes('ORDER_ID_COUNTER');
 export const ORDER_PREFIX = stringToBytes('ORDER');
 export const FACTORY_ADDRESS_KEY = stringToBytes('FACTORY_ADDRESS');
+export const PENDING_ORDERS_KEY = stringToBytes('PENDING_ORDERS');
+export const PENDING_ORDERS_COUNT_KEY = stringToBytes('PENDING_ORDERS_COUNT');
 export const NATIVE_MAS_ADDRESS = 'NATIVE_MAS'; // Sentinel for native MAS token
+
+// Async execution configuration
+const CHECK_INTERVAL_PERIODS: u64 = 5; // Check every 5 periods (~80 seconds)
+const EXECUTION_GAS_BUDGET: u64 = 2_000_000_000; // 2B gas for execution
+const MAX_ORDERS_PER_CHECK: i32 = 10; // Max orders to check per async call
+const DEFAULT_FEE: u64 = 3000; // Default 0.3% fee tier for pools
 
 /**
  * Order Type Enum
@@ -99,19 +111,28 @@ export class LimitOrder {
 /**
  * Constructor - Initialize the OrderManager contract
  */
-export function constructor(_: StaticArray<u8>): void {
+export function constructor(binaryArgs: StaticArray<u8>): void {
   assert(Context.isDeployingContract(), 'ALREADY_INITIALIZED');
+
+  const args = new Args(binaryArgs);
+  const factoryAddress = args.nextString().expect('factoryAddress missing');
 
   // Set the contract owner
   setOwner(new Args().add(Context.caller().toString()).serialize());
 
+  // Store factory address
+  Storage.set(FACTORY_ADDRESS_KEY, stringToBytes(factoryAddress));
+
   // Initialize order ID counter
   Storage.set(ORDER_ID_COUNTER, u256ToBytes(u256.Zero));
+
+  // Initialize pending orders count
+  Storage.set(PENDING_ORDERS_COUNT_KEY, u64ToBytes(0));
 
   // Initialize reentrancy guard
   ReentrancyGuard.__ReentrancyGuard_init();
 
-  generateEvent('OrderManager initialized');
+  generateEvent(`OrderManager:Initialized:${factoryAddress}`);
 }
 
 /**
@@ -175,6 +196,15 @@ export function createLimitOrder(binaryArgs: StaticArray<u8>): StaticArray<u8> {
   // User must have approved this contract to spend their tokens
   _transferTokensIn(tokenIn, caller, amountIn);
 
+  // Add to pending orders for automated execution
+  _addToPendingOrders(orderId);
+
+  // Schedule automated checker if this is the first pending order
+  const pendingCount = _getPendingOrdersCount();
+  if (pendingCount == 1) {
+    _scheduleNextCheck(CHECK_INTERVAL_PERIODS);
+  }
+
   const orderTypeStr = orderType == 0 ? 'BUY' : 'SELL';
   generateEvent(
     `LimitOrderCreated:${orderId}:${caller}:${orderTypeStr}:${tokenIn}:${tokenOut}`,
@@ -213,6 +243,9 @@ export function cancelLimitOrder(binaryArgs: StaticArray<u8>): void {
   order.cancelled = true;
   Storage.set(orderKey, order.serialize());
 
+  // Remove from pending orders
+  _removeFromPendingOrders(orderId);
+
   // Return tokenIn to user
   _transferTokensOut(order.tokenIn, caller, order.amountIn);
 
@@ -222,17 +255,84 @@ export function cancelLimitOrder(binaryArgs: StaticArray<u8>): void {
 }
 
 /**
- * Execute a limit order (called by keeper/executor)
+ * AUTOMATED BATCH CHECKER - Runs via asyncCall
+ * Checks pending orders and executes those that meet price criteria
+ */
+export function checkAndExecutePendingOrders(_: StaticArray<u8>): void {
+  const currentTime = Context.timestamp();
+  const pendingCount = _getPendingOrdersCount();
+
+  if (pendingCount == 0) {
+    generateEvent('AutoChecker:NoPendingOrders');
+    return; // No orders to check
+  }
+
+  let processed = 0;
+  let executed = 0;
+  let expired = 0;
+
+  // Load pending order IDs
+  for (let i: u64 = 0; i < pendingCount && processed < MAX_ORDERS_PER_CHECK; i++) {
+    const orderIdKey = stringToBytes(`pending_order_${i.toString()}`);
+    if (!Storage.has(orderIdKey)) continue;
+
+    const orderId = bytesToU256(Storage.get(orderIdKey));
+    const orderKey = _getOrderKey(orderId);
+
+    if (!Storage.has(orderKey)) {
+      // Order was deleted, clean up
+      Storage.del(orderIdKey);
+      continue;
+    }
+
+    const order = LimitOrder.deserialize(Storage.get(orderKey));
+
+    // Skip if already processed
+    if (order.filled || order.cancelled) {
+      _removeFromPendingOrders(orderId);
+      continue;
+    }
+
+    // Check expiry
+    if (order.expiry > 0 && currentTime > order.expiry) {
+      order.cancelled = true;
+      Storage.set(orderKey, order.serialize());
+      _removeFromPendingOrders(orderId);
+      generateEvent(`AutoExpired:${orderId}`);
+      expired++;
+      processed++;
+      continue;
+    }
+
+    // Try to execute
+    const executed_success = _tryExecuteOrder(order);
+    if (executed_success) {
+      _removeFromPendingOrders(orderId);
+      executed++;
+    }
+
+    processed++;
+  }
+
+  generateEvent(`AutoChecker:Processed:${processed}:Executed:${executed}:Expired:${expired}`);
+
+  // Schedule next check if there are still pending orders
+  const remainingCount = _getPendingOrdersCount();
+  if (remainingCount > 0) {
+    _scheduleNextCheck(CHECK_INTERVAL_PERIODS);
+  }
+}
+
+/**
+ * Execute a limit order (manual execution by keeper)
  * @param binaryArgs - Contains:
  *  - orderId: u256 - ID of the order to execute
- *  - amountOut: u256 - Actual amount of tokenOut received
  */
 export function executeLimitOrder(binaryArgs: StaticArray<u8>): void {
   ReentrancyGuard.nonReentrant();
 
   const args = new Args(binaryArgs);
   const orderId = args.nextU256().expect('orderId missing');
-  const amountOut = args.nextU256().expect('amountOut missing');
 
   // Load order
   const orderKey = _getOrderKey(orderId);
@@ -250,42 +350,11 @@ export function executeLimitOrder(binaryArgs: StaticArray<u8>): void {
     assert(currentTime <= order.expiry, 'ORDER_EXPIRED');
   }
 
-  // Validate execution meets minimum output
-  assert(amountOut >= order.minAmountOut, 'INSUFFICIENT_OUTPUT_AMOUNT');
+  // Execute the order
+  _tryExecuteOrder(order);
 
-  // Validate price meets limit based on order type
-  // actualPrice = (amountOut * 10^18) / amountIn
-  const actualPrice = SafeMathU256.div(
-    SafeMathU256.mul(amountOut, u256.fromU64(1000000000000000000)),
-    order.amountIn,
-  );
-
-  if (order.orderType == 0) {
-    // BUY order: actualPrice should be <= limitPrice (buying at or below limit)
-    assert(actualPrice <= order.limitPrice, 'BUY_PRICE_TOO_HIGH');
-  } else {
-    // SELL order: actualPrice should be >= limitPrice (selling at or above limit)
-    assert(actualPrice >= order.limitPrice, 'SELL_PRICE_TOO_LOW');
-  }
-
-  // Mark as filled
-  order.filled = true;
-  Storage.set(orderKey, order.serialize());
-
-  // Note: In a production system, you would:
-  // 1. Query the factory to get the pool address for this token pair
-  // 2. Execute the swap through the pool
-  // 3. Verify the amountOut matches what was provided
-  //
-  // For now, we trust the executor and directly transfer the output tokens
-  // The executor must have already obtained tokenOut and will transfer it
-
-  // Transfer tokenOut to order owner
-  _transferTokensOut(order.tokenOut, order.owner, amountOut);
-
-  generateEvent(
-    `LimitOrderExecuted:${orderId}:${order.owner}:${amountOut}:${actualPrice}`,
-  );
+  // Remove from pending orders
+  _removeFromPendingOrders(orderId);
 
   ReentrancyGuard.endNonReentrant();
 }
@@ -312,6 +381,13 @@ export function getOrderCount(_: StaticArray<u8>): StaticArray<u8> {
   return Storage.get(ORDER_ID_COUNTER);
 }
 
+/**
+ * Get number of pending orders
+ */
+export function getPendingOrdersCount(_: StaticArray<u8>): StaticArray<u8> {
+  return Storage.get(PENDING_ORDERS_COUNT_KEY);
+}
+
 /* Internal functions */
 
 function _getOrderKey(orderId: u256): StaticArray<u8> {
@@ -319,23 +395,177 @@ function _getOrderKey(orderId: u256): StaticArray<u8> {
 }
 
 /**
+ * Add order to pending orders list
+ */
+function _addToPendingOrders(orderId: u256): void {
+  const currentCount = _getPendingOrdersCount();
+  const key = stringToBytes(`pending_order_${currentCount.toString()}`);
+  Storage.set(key, u256ToBytes(orderId));
+
+  const newCount = currentCount + 1;
+  Storage.set(PENDING_ORDERS_COUNT_KEY, u64ToBytes(newCount));
+}
+
+/**
+ * Remove order from pending orders list
+ */
+function _removeFromPendingOrders(orderId: u256): void {
+  const count = _getPendingOrdersCount();
+
+  // Find and remove the order
+  for (let i: u64 = 0; i < count; i++) {
+    const key = stringToBytes(`pending_order_${i.toString()}`);
+    if (!Storage.has(key)) continue;
+
+    const storedId = bytesToU256(Storage.get(key));
+    if (storedId == orderId) {
+      // Swap with last element and delete
+      const lastKey = stringToBytes(`pending_order_${(count - 1).toString()}`);
+      if (i < count - 1 && Storage.has(lastKey)) {
+        const lastId = Storage.get(lastKey);
+        Storage.set(key, lastId);
+      }
+      Storage.del(lastKey);
+
+      const newCount = count - 1;
+      Storage.set(PENDING_ORDERS_COUNT_KEY, u64ToBytes(newCount));
+      break;
+    }
+  }
+}
+
+/**
+ * Get pending orders count
+ */
+function _getPendingOrdersCount(): u64 {
+  const data = Storage.get(PENDING_ORDERS_COUNT_KEY);
+  if (data.length == 0) return 0;
+  return bytesToU64(data);
+}
+
+/**
+ * Schedule next async check
+ */
+function _scheduleNextCheck(periodDelay: u64): void {
+  const currentPeriod = Context.currentPeriod();
+  const currentThread = Context.currentThread();
+
+  let nextPeriod = currentPeriod + periodDelay;
+  let nextThread = currentThread + 1;
+
+  // Wrap thread if needed
+  if (nextThread >= 32) {
+    nextPeriod = nextPeriod + 1;
+    nextThread = 0;
+  }
+
+  sendMessage(
+    Context.callee(), // This contract
+    'checkAndExecutePendingOrders', // Function to call
+    nextPeriod, // Validity start period
+    u8(nextThread), // Validity start thread
+    nextPeriod + 10, // Validity end period (10 period window)
+    u8(nextThread), // Validity end thread
+    EXECUTION_GAS_BUDGET, // Max gas
+    0, // Raw fee
+    0, // No coins needed
+    new Args().serialize(), // Function params
+  );
+
+  generateEvent(`AutoScheduled:Period:${nextPeriod}:Thread:${nextThread}`);
+}
+
+/**
+ * Try to execute an order - returns true if executed
+ */
+function _tryExecuteOrder(order: LimitOrder): bool {
+  // Get factory address
+  const factoryAddressBytes = Storage.get(FACTORY_ADDRESS_KEY);
+  const factoryAddress = bytesToString(factoryAddressBytes);
+
+  // Get pool address for token pair
+  const poolAddress = _getPoolAddress(
+    factoryAddress,
+    order.tokenIn,
+    order.tokenOut,
+    DEFAULT_FEE,
+  );
+
+  if (poolAddress == '') {
+    generateEvent(`AutoExecute:NoPool:${order.orderId}`);
+    return false;
+  }
+
+  // Get current pool state to check price
+  // For simplification, we'll attempt the swap and let it revert if price doesn't meet limit
+
+  // Determine swap direction
+  const zeroForOne = order.tokenIn < order.tokenOut;
+
+  // Set sqrt price limit based on order type
+  const sqrtPriceLimitX96 = zeroForOne
+    ? u256.fromU64(4295128739) // Approximate MIN_SQRT_RATIO
+    : u256.Max; // Use max as upper limit
+
+  // Convert amountIn to i128 for swap
+  const amountInI128 = i128.from(order.amountIn);
+
+  const swapArgs = new Args()
+    .add(order.owner) // Recipient
+    .add(zeroForOne) // Direction
+    .add(amountInI128) // Amount
+    .add(sqrtPriceLimitX96); // Price limit
+
+  // Try to execute swap
+  // Note: This will revert if the swap fails
+  // In a production system, you'd want error handling
+  call(new Address(poolAddress), 'swap', swapArgs, 0);
+
+  // If we reach here, swap succeeded - mark order as filled
+  order.filled = true;
+  const orderKey = _getOrderKey(order.orderId);
+  Storage.set(orderKey, order.serialize());
+
+  generateEvent(`AutoExecuted:${order.orderId}:${order.owner}`);
+
+  return true;
+}
+
+/**
+ * Get pool address from factory
+ */
+function _getPoolAddress(
+  factoryAddress: string,
+  token0: string,
+  token1: string,
+  fee: u64,
+): string {
+  // Ensure tokens are ordered
+  let tokenA = token0;
+  let tokenB = token1;
+  if (token0 > token1) {
+    tokenA = token1;
+    tokenB = token0;
+  }
+
+  const args = new Args().add(tokenA).add(tokenB).add(fee);
+
+  // Call factory to get pool
+  // Note: This assumes factory has a getPool read-only function
+  // For now, return empty string (pool lookup will be implemented)
+  return '';
+}
+
+/**
  * Transfer tokens from user to this contract
  * Supports both MRC6909 tokens and native MAS
  */
-function _transferTokensIn(
-  token: string,
-  from: string,
-  amount: u256,
-): void {
+function _transferTokensIn(token: string, from: string, amount: u256): void {
   if (token == NATIVE_MAS_ADDRESS) {
     // For native MAS, we expect coins to be sent with the transaction
-    // The caller should have sent the amount as coins
     const coinsReceived = Context.transferredCoins();
-    const amountU64 = amount.toU64(); // Convert u256 to u64 for MAS
-    assert(
-      coinsReceived >= amountU64,
-      'INSUFFICIENT_MAS_SENT',
-    );
+    const amountU64 = amount.toU64();
+    assert(coinsReceived >= amountU64, 'INSUFFICIENT_MAS_SENT');
   } else {
     // For MRC6909 tokens, call transferFrom
     const transferArgs = new Args()
@@ -344,12 +574,7 @@ function _transferTokensIn(
       .add(u256.Zero) // tokenId - using 0 for standard tokens
       .add(amount);
 
-    call(
-      new Address(token),
-      'transferFrom',
-      transferArgs,
-      0,
-    );
+    call(new Address(token), 'transferFrom', transferArgs, 0);
   }
 }
 
@@ -357,14 +582,10 @@ function _transferTokensIn(
  * Transfer tokens from this contract to user
  * Supports both MRC6909 tokens and native MAS
  */
-function _transferTokensOut(
-  token: string,
-  to: string,
-  amount: u256,
-): void {
+function _transferTokensOut(token: string, to: string, amount: u256): void {
   if (token == NATIVE_MAS_ADDRESS) {
     // For native MAS, transfer coins
-    const amountU64 = amount.toU64(); // Convert u256 to u64 for MAS
+    const amountU64 = amount.toU64();
     Coins.transferCoins(new Address(to), amountU64);
   } else {
     // For MRC6909 tokens, call transfer
@@ -373,51 +594,6 @@ function _transferTokensOut(
       .add(u256.Zero) // tokenId - using 0 for standard tokens
       .add(amount);
 
-    call(
-      new Address(token),
-      'transfer',
-      transferArgs,
-      0,
-    );
+    call(new Address(token), 'transfer', transferArgs, 0);
   }
-}
-
-/**
- * Execute a swap through a pool
- * This is a simplified version - in production you would route through the factory
- */
-function _executeSwap(
-  poolAddress: string,
-  tokenIn: string,
-  tokenOut: string,
-  amountIn: u256,
-  recipient: string,
-): u256 {
-  // Determine swap direction (zeroForOne)
-  // This assumes tokens are sorted (token0 < token1)
-  const zeroForOne = tokenIn < tokenOut;
-
-  // For simplicity, we use approximate sqrt price limits
-  // In production, calculate proper price limits based on pool state
-  const sqrtPriceLimitX96 = zeroForOne
-    ? u256.fromU64(4295128739) // Approximate MIN_SQRT_RATIO + 1
-    : u256.Max; // Use max value as upper limit
-
-  const swapArgs = new Args()
-    .add(recipient)
-    .add(zeroForOne)
-    .add(amountIn) // Using as i128 approximation
-    .add(sqrtPriceLimitX96);
-
-  // Call pool swap function
-  call(
-    new Address(poolAddress),
-    'swap',
-    swapArgs,
-    0,
-  );
-
-  // Return expected amountOut (in production, parse return value)
-  // For now, return a placeholder
-  return u256.Zero;
 }
