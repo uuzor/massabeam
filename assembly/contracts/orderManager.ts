@@ -388,6 +388,199 @@ export function getPendingOrdersCount(_: StaticArray<u8>): StaticArray<u8> {
   return Storage.get(PENDING_ORDERS_COUNT_KEY);
 }
 
+/**
+ * Get factory address
+ */
+export function getFactoryAddress(_: StaticArray<u8>): StaticArray<u8> {
+  return new Args()
+    .addBytes(Storage.get(FACTORY_ADDRESS_KEY))
+    .serialize();
+}
+
+/**
+ * Get list of pending order IDs
+ * Returns array of order IDs that are pending execution
+ */
+export function getPendingOrders(_: StaticArray<u8>): StaticArray<u8> {
+  const count = _getPendingOrdersCount();
+  const args = new Args();
+
+  args.add(count); // Add count first
+
+  for (let i: u64 = 0; i < count; i++) {
+    const key = stringToBytes(`pending_order_${i.toString()}`);
+    if (Storage.has(key)) {
+      const orderId = bytesToU256(Storage.get(key));
+      args.add(orderId);
+    }
+  }
+
+  return args.serialize();
+}
+
+/**
+ * Get orders by owner address
+ * @param binaryArgs - Contains:
+ *  - owner: string - Owner address
+ *  - limit: u64 - Max number of orders to return (optional, default 100)
+ */
+export function getUserOrders(binaryArgs: StaticArray<u8>): StaticArray<u8> {
+  const args = new Args(binaryArgs);
+  const owner = args.nextString().expect('owner missing');
+  const limit = args.nextU64().unwrap_or(100);
+
+  const totalOrders = bytesToU64(Storage.get(ORDER_ID_COUNTER));
+  const result = new Args();
+
+  let matchCount: u64 = 0;
+  result.add(matchCount); // Placeholder for count, will update later
+
+  for (let i: u64 = 1; i <= totalOrders && matchCount < limit; i++) {
+    const orderId = u256.fromU64(i);
+    const orderKey = _getOrderKey(orderId);
+
+    if (Storage.has(orderKey)) {
+      const order = LimitOrder.deserialize(Storage.get(orderKey));
+      if (order.owner == owner) {
+        result.addBytes(order.serialize());
+        matchCount++;
+      }
+    }
+  }
+
+  // Update count at the beginning
+  const resultBytes = result.serialize();
+  const finalArgs = new Args().add(matchCount);
+
+  // Re-add all orders after count
+  for (let i: u64 = 1; i <= totalOrders && i <= matchCount; i++) {
+    const orderId = u256.fromU64(i);
+    const orderKey = _getOrderKey(orderId);
+
+    if (Storage.has(orderKey)) {
+      const order = LimitOrder.deserialize(Storage.get(orderKey));
+      if (order.owner == owner) {
+        finalArgs.addBytes(order.serialize());
+      }
+    }
+  }
+
+  return finalArgs.serialize();
+}
+
+/**
+ * Get order status
+ * @param binaryArgs - Contains:
+ *  - orderId: u256 - Order ID
+ * @returns Status: 0 = Active, 1 = Filled, 2 = Cancelled, 3 = Expired
+ */
+export function getOrderStatus(binaryArgs: StaticArray<u8>): StaticArray<u8> {
+  const args = new Args(binaryArgs);
+  const orderId = args.nextU256().expect('orderId missing');
+
+  const orderKey = _getOrderKey(orderId);
+  assert(Storage.has(orderKey), 'ORDER_NOT_FOUND');
+
+  const order = LimitOrder.deserialize(Storage.get(orderKey));
+
+  let status: u8 = 0; // Active
+
+  if (order.cancelled) {
+    status = 2; // Cancelled
+  } else if (order.filled) {
+    status = 1; // Filled
+  } else if (order.expiry > 0 && Context.currentPeriod() > order.expiry) {
+    status = 3; // Expired
+  }
+
+  return new Args().add(status).serialize();
+}
+
+/**
+ * Get orders by token pair
+ * @param binaryArgs - Contains:
+ *  - tokenIn: string
+ *  - tokenOut: string
+ *  - limit: u64 - Max orders to return (optional, default 50)
+ */
+export function getOrdersByTokenPair(binaryArgs: StaticArray<u8>): StaticArray<u8> {
+  const args = new Args(binaryArgs);
+  const tokenIn = args.nextString().expect('tokenIn missing');
+  const tokenOut = args.nextString().expect('tokenOut missing');
+  const limit = args.nextU64().unwrap_or(50);
+
+  const totalOrders = bytesToU64(Storage.get(ORDER_ID_COUNTER));
+  const result = new Args();
+
+  let matchCount: u64 = 0;
+
+  for (let i: u64 = 1; i <= totalOrders && matchCount < limit; i++) {
+    const orderId = u256.fromU64(i);
+    const orderKey = _getOrderKey(orderId);
+
+    if (Storage.has(orderKey)) {
+      const order = LimitOrder.deserialize(Storage.get(orderKey));
+      if (order.tokenIn == tokenIn && order.tokenOut == tokenOut && !order.filled && !order.cancelled) {
+        if (matchCount == 0) {
+          result.add(matchCount + 1); // Add placeholder count
+        }
+        result.addBytes(order.serialize());
+        matchCount++;
+      }
+    }
+  }
+
+  if (matchCount == 0) {
+    return new Args().add(u64(0)).serialize();
+  }
+
+  return result.serialize();
+}
+
+/**
+ * Get active orders count (not filled, not cancelled)
+ */
+export function getActiveOrdersCount(_: StaticArray<u8>): StaticArray<u8> {
+  const totalOrders = bytesToU64(Storage.get(ORDER_ID_COUNTER));
+  let activeCount: u64 = 0;
+
+  for (let i: u64 = 1; i <= totalOrders; i++) {
+    const orderId = u256.fromU64(i);
+    const orderKey = _getOrderKey(orderId);
+
+    if (Storage.has(orderKey)) {
+      const order = LimitOrder.deserialize(Storage.get(orderKey));
+      if (!order.filled && !order.cancelled) {
+        activeCount++;
+      }
+    }
+  }
+
+  return new Args().add(activeCount).serialize();
+}
+
+/**
+ * Get filled orders count
+ */
+export function getFilledOrdersCount(_: StaticArray<u8>): StaticArray<u8> {
+  const totalOrders = bytesToU64(Storage.get(ORDER_ID_COUNTER));
+  let filledCount: u64 = 0;
+
+  for (let i: u64 = 1; i <= totalOrders; i++) {
+    const orderId = u256.fromU64(i);
+    const orderKey = _getOrderKey(orderId);
+
+    if (Storage.has(orderKey)) {
+      const order = LimitOrder.deserialize(Storage.get(orderKey));
+      if (order.filled) {
+        filledCount++;
+      }
+    }
+  }
+
+  return new Args().add(filledCount).serialize();
+}
+
 /* Internal functions */
 
 function _getOrderKey(orderId: u256): StaticArray<u8> {
