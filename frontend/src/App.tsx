@@ -8,6 +8,7 @@ import { web3 } from '@hicaru/bearby.js';
 import { Sidebar, Button } from './components';
 import { SwapPage } from './pages/SwapPage';
 import { OrdersPage } from './pages/OrdersPage';
+import { AnalyticsPage } from './pages/AnalyticsPage';
 import { PoolsPage } from './dex/pages';
 import './App.css';
 
@@ -115,12 +116,7 @@ export default function App() {
       case 'orders':
         return <OrdersPage />;
       case 'analytics':
-        return (
-          <div className="coming-soon">
-            <h2>Analytics</h2>
-            <p>Charts and statistics coming soon</p>
-          </div>
-        );
+        return <AnalyticsPage />;
       default:
         return <SwapPage />;
     }
