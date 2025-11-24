@@ -42,6 +42,16 @@ export class Position {
 }
 
 /**
+ * Token amounts class
+ */
+export class TokenAmounts {
+  constructor(
+    public amount0: u256,
+    public amount1: u256,
+  ) {}
+}
+
+/**
  * Calculate token amounts needed for a given liquidity amount
  * Simplified version - in production use proper sqrt price math
  */
@@ -50,29 +60,29 @@ export function getAmountsForLiquidity(
   sqrtPriceAX96: u256,
   sqrtPriceBX96: u256,
   liquidity: u128,
-): { amount0: u256; amount1: u256 } {
+): TokenAmounts {
   // Simplified calculation
   // In production, use proper Q96 math from Uniswap V3
 
   if (sqrtPriceX96 <= sqrtPriceAX96) {
     // Current price below range - only token0
-    return {
-      amount0: u256.from(liquidity),
-      amount1: u256.Zero,
-    };
+    return new TokenAmounts(
+      u256.from(liquidity),
+      u256.Zero
+    );
   } else if (sqrtPriceX96 >= sqrtPriceBX96) {
     // Current price above range - only token1
-    return {
-      amount0: u256.Zero,
-      amount1: u256.from(liquidity),
-    };
+    return new TokenAmounts(
+      u256.Zero,
+      u256.from(liquidity)
+    );
   } else {
     // Current price in range - both tokens
     const half = SafeMathU128.div(liquidity, u128.fromU32(2));
-    return {
-      amount0: u256.from(half),
-      amount1: u256.from(half),
-    };
+    return new TokenAmounts(
+      u256.from(half),
+      u256.from(half)
+    );
   }
 }
 

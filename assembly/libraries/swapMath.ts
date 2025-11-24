@@ -58,13 +58,21 @@ export function computeSwapStep(
 }
 
 /**
+ * Get 2^96 as u256
+ */
+function getSqrtPrice96(): u256 {
+  const one = u256.One;
+  return one << 96;
+}
+
+/**
  * Calculate sqrt price from tick
  * Simplified version
  */
 export function getSqrtPriceAtTick(tick: i32): u256 {
   // Simplified: linear approximation
   // In production, use proper tick math with 1.0001^tick
-  const base = u256.fromU64(79228162514264337593543950336); // 2^96
+  const base = getSqrtPrice96(); // 2^96
   const tickAbs = tick >= 0 ? tick : -tick;
   const adjustment = u256.fromU32(u32(tickAbs));
 
@@ -82,7 +90,7 @@ export function getSqrtPriceAtTick(tick: i32): u256 {
 export function getTickAtSqrtPrice(sqrtPriceX96: u256): i32 {
   // Simplified: linear approximation
   // In production, use proper inverse tick math
-  const base = u256.fromU64(79228162514264337593543950336); // 2^96
+  const base = getSqrtPrice96(); // 2^96
 
   if (sqrtPriceX96 >= base) {
     const diff = SafeMathU256.sub(sqrtPriceX96, base);
