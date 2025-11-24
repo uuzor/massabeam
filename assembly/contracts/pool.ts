@@ -22,6 +22,9 @@ import {
   poolState as POOL_STATE_KEY,
   feeGrowthGlobal0,
   feeGrowthGlobal1,
+  protocolFee0,
+  protocolFee1,
+  maxLiquidityPerTick,
   liquidity as LIQUIDITY_KEY
 } from '../storage/pool';
 import { i128, u128 } from 'as-bignum/assembly';
@@ -783,6 +786,116 @@ export function getPoolState(_: StaticArray<u8>): StaticArray<u8> {
     .add(token0)
     .add(token1)
     .add(fee)
+    .serialize();
+}
+
+/**
+ * Get tick spacing
+ */
+export function getTickSpacing(_: StaticArray<u8>): StaticArray<u8> {
+  return Storage.get(TICK_SPACING);
+}
+
+/**
+ * Get factory address
+ */
+export function getFactory(_: StaticArray<u8>): StaticArray<u8> {
+  return new Args()
+    .add(Storage.get(FACTORY))
+    .serialize();
+}
+
+/**
+ * Get fee growth global for token0
+ */
+export function getFeeGrowthGlobal0(_: StaticArray<u8>): StaticArray<u8> {
+  const data = Storage.get(feeGrowthGlobal0);
+  if (data.length === 0) {
+    return u256ToBytes(u256.Zero);
+  }
+  return data;
+}
+
+/**
+ * Get fee growth global for token1
+ */
+export function getFeeGrowthGlobal1(_: StaticArray<u8>): StaticArray<u8> {
+  const data = Storage.get(feeGrowthGlobal1);
+  if (data.length === 0) {
+    return u256ToBytes(u256.Zero);
+  }
+  return data;
+}
+
+/**
+ * Get protocol fees for both tokens
+ */
+export function getProtocolFees(_: StaticArray<u8>): StaticArray<u8> {
+  const fee0Data = Storage.get(protocolFee0);
+  const fee1Data = Storage.get(protocolFee1);
+
+  const fee0 = fee0Data.length > 0 ? bytesToU128(fee0Data) : u128.Zero;
+  const fee1 = fee1Data.length > 0 ? bytesToU128(fee1Data) : u128.Zero;
+
+  return new Args()
+    .add(fee0)
+    .add(fee1)
+    .serialize();
+}
+
+/**
+ * Get maximum liquidity per tick
+ */
+export function getMaxLiquidityPerTick(_: StaticArray<u8>): StaticArray<u8> {
+  const data = Storage.get(maxLiquidityPerTick);
+  if (data.length === 0) {
+    return u128ToBytes(u128.Zero);
+  }
+  return data;
+}
+
+/**
+ * Get tick info for a specific tick
+ */
+export function getTickInfo(binaryArgs: StaticArray<u8>): StaticArray<u8> {
+  const args = new Args(binaryArgs);
+  const tick = args.nextI32().expect('tick is missing');
+
+  const tickInfo = loadTick(tick);
+  return tickInfo.serialize();
+}
+
+/**
+ * Get current price (human readable format)
+ * Returns price as token1/token0
+ */
+export function getPrice(_: StaticArray<u8>): StaticArray<u8> {
+  const state = PoolState.load();
+  const sqrtPriceX96 = state.sqrtPriceX96;
+
+  // price = (sqrtPriceX96 / 2^96) ^ 2
+  // We return sqrtPriceX96 directly and let the client compute the actual price
+  return u256ToBytes(sqrtPriceX96);
+}
+
+/**
+ * Get pool metadata (all immutable values)
+ */
+export function getPoolMetadata(_: StaticArray<u8>): StaticArray<u8> {
+  const token0 = Storage.get(TOKEN_0);
+  const token1 = Storage.get(TOKEN_1);
+  const fee = bytesToU64(Storage.get(FEE));
+  const tickSpacing = bytesToU64(Storage.get(TICK_SPACING));
+  const factory = Storage.get(FACTORY);
+  const maxLiqPerTick = Storage.get(maxLiquidityPerTick);
+
+  return new Args()
+    .add(token0)
+    .add(token1)
+    .add(fee)
+    .add(tickSpacing)
+    .add(factory)
+    .addBytes(maxLiqPerTick)
     .serialize();
 }
 
