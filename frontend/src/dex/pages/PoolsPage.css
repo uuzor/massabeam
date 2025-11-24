@@ -1,75 +1,71 @@
 /**
- * Pools Page Styles
+ * Professional Pools Page Styles
  */
 
 .pools-page {
   min-height: 100vh;
-  background: #0D111C;
-  padding-bottom: 4rem;
+  background: #fafafa;
+  padding: 24px;
 }
 
-/* Navigation */
+/* Navigation Tabs */
 .pools-nav {
-  background: linear-gradient(135deg, #1a1d29 0%, #24283b 100%);
-  border-bottom: 1px solid #2c2f36;
-  padding: 1.5rem 0;
-  margin-bottom: 2rem;
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  backdrop-filter: blur(10px);
+  background: #ffffff;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 24px;
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .pools-nav-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 1rem;
   display: flex;
-  gap: 1rem;
+  gap: 8px;
 }
 
 .nav-tab {
   flex: 1;
-  max-width: 200px;
-  padding: 1rem 1.5rem;
+  padding: 10px 16px;
   background: transparent;
-  border: 2px solid #2c2f36;
-  border-radius: 12px;
-  color: #98a1c0;
-  font-size: 1rem;
-  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  color: #525252;
+  font-size: 0.875rem;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 150ms;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
+  gap: 8px;
+  font-family: inherit;
 }
 
 .nav-tab:hover {
-  border-color: #FC74FE;
-  transform: translateY(-2px);
+  background: #fafafa;
+  color: #171717;
 }
 
 .nav-tab.active {
-  background: linear-gradient(135deg, rgba(252, 116, 254, 0.1) 0%, rgba(99, 102, 241, 0.1) 100%);
-  border-color: #FC74FE;
-  color: #fff;
+  background: #171717;
+  color: #ffffff;
 }
 
 .tab-icon {
-  font-size: 1.25rem;
+  font-size: 1rem;
 }
 
 /* Content */
 .pools-content {
-  animation: fadeIn 0.3s ease-in-out;
+  animation: fadeIn 0.2s ease-in-out;
 }
 
 @keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
@@ -80,75 +76,82 @@
 .pools-section {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0 1rem;
 }
 
 /* Back Button */
 .back-button {
-  padding: 0.75rem 1.5rem;
-  margin-bottom: 2rem;
-  background: transparent;
-  border: 1px solid #2c2f36;
-  border-radius: 12px;
-  color: #98a1c0;
+  padding: 8px 16px;
+  margin-bottom: 24px;
+  background: #ffffff;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  color: #525252;
   font-size: 0.875rem;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 150ms;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .back-button:hover {
-  border-color: #FC74FE;
-  color: #FC74FE;
-  transform: translateX(-4px);
+  background: #fafafa;
+  border-color: #d4d4d4;
+  color: #171717;
 }
 
 /* Info Banner */
 .pools-info-banner {
   max-width: 1200px;
-  margin: 3rem auto 0;
-  padding: 0 1rem;
+  margin: 32px auto 0;
 }
 
 .info-banner-content {
   display: flex;
-  gap: 1.5rem;
-  padding: 2rem;
-  background: linear-gradient(135deg, rgba(252, 116, 254, 0.05) 0%, rgba(99, 102, 241, 0.05) 100%);
-  border: 1px solid rgba(252, 116, 254, 0.2);
-  border-radius: 16px;
+  gap: 16px;
+  padding: 20px;
+  background: #ffffff;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
 }
 
 .info-icon {
-  font-size: 3rem;
+  font-size: 2rem;
   flex-shrink: 0;
 }
 
 .info-text h4 {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: #FC74FE;
-  margin-bottom: 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #171717;
+  margin-bottom: 8px;
 }
 
 .info-text p {
-  color: #98a1c0;
+  color: #737373;
+  font-size: 0.875rem;
   line-height: 1.6;
+  margin: 0;
 }
 
 /* Responsive */
 @media (max-width: 768px) {
+  .pools-page {
+    padding: 16px;
+  }
+
   .pools-nav-container {
     flex-direction: column;
   }
 
   .nav-tab {
-    max-width: none;
+    width: 100%;
   }
 
   .info-banner-content {
     flex-direction: column;
-    align-items: center;
     text-align: center;
   }
 }

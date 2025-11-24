@@ -1,0 +1,44 @@
+/* Professional Divider Styles */
+
+.divider {
+  background: #e5e5e5;
+  border: none;
+}
+
+.divider-horizontal {
+  width: 100%;
+  height: 1px;
+}
+
+.divider-vertical {
+  width: 1px;
+  height: 100%;
+}
+
+.divider-spacing-none {
+  margin: 0;
+}
+
+.divider-spacing-sm {
+  margin: 8px 0;
+}
+
+.divider-spacing-md {
+  margin: 16px 0;
+}
+
+.divider-spacing-lg {
+  margin: 24px 0;
+}
+
+.divider-vertical.divider-spacing-sm {
+  margin: 0 8px;
+}
+
+.divider-vertical.divider-spacing-md {
+  margin: 0 16px;
+}
+
+.divider-vertical.divider-spacing-lg {
+  margin: 0 24px;
+}
