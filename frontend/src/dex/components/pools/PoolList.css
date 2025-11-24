@@ -1,0 +1,252 @@
+/**
+ * Pool List Component Styles
+ */
+
+.pool-list-container {
+  max-width: 1200px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+
+/* Header */
+.pool-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 2rem;
+}
+
+.header-left {
+  flex: 1;
+}
+
+.pool-list-title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pool-list-description {
+  color: #98a1c0;
+  line-height: 1.6;
+}
+
+.pool-count {
+  padding: 0.75rem 1.5rem;
+  background: linear-gradient(135deg, rgba(252, 116, 254, 0.1) 0%, rgba(99, 102, 241, 0.1) 100%);
+  border: 1px solid rgba(252, 116, 254, 0.3);
+  border-radius: 12px;
+  color: #FC74FE;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+/* Controls */
+.pool-controls {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+}
+
+.search-box {
+  position: relative;
+  flex: 1;
+  min-width: 250px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 1rem 3rem 1rem 1rem;
+  background: #191b1f;
+  border: 2px solid #2c2f36;
+  border-radius: 12px;
+  color: #fff;
+  font-size: 1rem;
+  transition: all 0.2s;
+}
+
+.search-input:hover {
+  border-color: #FC74FE;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #FC74FE;
+  box-shadow: 0 0 0 3px rgba(252, 116, 254, 0.1);
+}
+
+.search-input::placeholder {
+  color: #98a1c0;
+}
+
+.search-icon {
+  position: absolute;
+  right: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1.25rem;
+  pointer-events: none;
+}
+
+.filter-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.filter-button {
+  padding: 1rem 1.5rem;
+  background: #191b1f;
+  border: 2px solid #2c2f36;
+  border-radius: 12px;
+  color: #98a1c0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.filter-button:hover {
+  border-color: #FC74FE;
+}
+
+.filter-button.active {
+  background: linear-gradient(135deg, rgba(252, 116, 254, 0.1) 0%, rgba(99, 102, 241, 0.1) 100%);
+  border-color: #FC74FE;
+  color: #fff;
+}
+
+/* Pool Grid */
+.pool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+/* Loading State */
+.pool-list-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  color: #98a1c0;
+}
+
+.loading-spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid #2c2f36;
+  border-top-color: #FC74FE;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 1rem;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Empty State */
+.pool-list-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  background: linear-gradient(135deg, #1a1d29 0%, #24283b 100%);
+  border: 1px solid #2c2f36;
+  border-radius: 24px;
+  text-align: center;
+}
+
+.empty-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+}
+
+.pool-list-empty h3 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 0.5rem;
+}
+
+.pool-list-empty p {
+  color: #98a1c0;
+  font-size: 1rem;
+}
+
+/* Stats Summary */
+.pool-stats-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem;
+  padding: 2rem;
+  background: linear-gradient(135deg, #1a1d29 0%, #24283b 100%);
+  border: 1px solid #2c2f36;
+  border-radius: 16px;
+}
+
+.summary-stat {
+  text-align: center;
+}
+
+.summary-label {
+  font-size: 0.875rem;
+  color: #98a1c0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.summary-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .pool-grid {
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .pool-list-header {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .pool-controls {
+    flex-direction: column;
+  }
+
+  .filter-buttons {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .filter-button {
+    flex: 1;
+  }
+
+  .pool-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pool-stats-summary {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+}
