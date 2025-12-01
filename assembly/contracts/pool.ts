@@ -45,10 +45,13 @@ const NATIVE_MAS_ADDRESS = 'NATIVE_MAS';
 // Helper to create 2^96 as u256
 function getSqrtPrice96(): u256 {
   // 2^96 = 79228162514264337593543950336
-  // Create using bit shift: 1 << 96
-  const one = 1;
-  const shift96 = one << 96;
-  return u256.fromF64(shift96);
+  // Build by combining smaller parts: 2^96 = 2^48 * 2^48
+  // 2^48 = 281474976710656
+  const pow48 = 281474976710656;
+  const part1 = u128.fromU64(pow48);
+  const part2 = u128.fromU64(pow48);
+  const result = u128.mul(part1, part2);
+  return u256.fromU128(result);
 }
 
 /**
@@ -79,12 +82,13 @@ class PoolState {
   }
 
   static load(): PoolState {
-    const data = Storage.get(POOL_STATE_KEY);
-    if (data.length === 0) {
+    
+    if (!Storage.has(POOL_STATE_KEY)) {
       // Initialize with default state
       const defaultSqrtPrice = getSqrtPrice96(); // 2^96
       return new PoolState(defaultSqrtPrice, 0, u128.Zero);
     }
+    const data = Storage.get(POOL_STATE_KEY);
     return PoolState.deserialize(data);
   }
 
@@ -105,12 +109,12 @@ function getPositionKey(owner: string, tickLower: i32, tickUpper: i32): StaticAr
  */
 function loadPosition(owner: string, tickLower: i32, tickUpper: i32): Position {
   const key = getPositionKey(owner, tickLower, tickUpper);
-  const data = Storage.get(key);
+  
 
-  if (data.length === 0) {
+  if ( !Storage.has(key)) {
     return new Position(u128.Zero, u256.Zero, u256.Zero, u128.Zero, u128.Zero);
   }
-
+  const data =  Storage.get(key);
   return Position.deserialize(data);
 }
 
@@ -134,9 +138,9 @@ function getTickKey(tick: i32): StaticArray<u8> {
  */
 function loadTick(tick: i32): TickInfo {
   const key = getTickKey(tick);
-  const data = Storage.get(key);
+  
 
-  if (data.length === 0) {
+  if (!Storage.has(key)) {
     return new TickInfo(
       u128.Zero, // liquidityGross
       i128.Zero, // liquidityNet
@@ -148,6 +152,8 @@ function loadTick(tick: i32): TickInfo {
       false // initialized
     );
   }
+
+  const data = Storage.get(key);
 
   return TickInfo.deserialize(data);
 }
@@ -187,9 +193,19 @@ function updateTick(
   }
 
   info.liqidityGross = liquidityGrossAfter;
-  info.liquidityNet = upper
-    ? safeMathI128.sub(info.liquidityNet, liquidityDelta)
-    : safeMathI128.add(info.liquidityNet, liquidityDelta);
+
+  // Update liquidityNet: at upper tick, negate the delta
+  // For mint (positive delta): upper tick needs negation
+  // For burn (negative delta): upper tick doesn't need negation (already negative)
+  let liquidityNetDelta: i128;
+  if (upper) {
+    // For upper tick: if delta is positive (mint), negate it; if negative (burn), keep it
+    liquidityNetDelta = liquidityDelta < i128.Zero ? liquidityDelta : i128.sub(i128.Zero, liquidityDelta);
+  } else {
+    // For lower tick: use delta as-is
+    liquidityNetDelta = liquidityDelta;
+  }
+  info.liquidityNet = i128.add(info.liquidityNet, liquidityNetDelta);
 
   saveTick(tick, info);
 
@@ -231,7 +247,7 @@ function transferTokensOut(token: string, to: string, amount: u256): void {
       .add(u256.Zero) // token ID (0 for fungible)
       .add(amount);
 
-    call(new Address(token), 'transfer', transferArgs, 0);
+    call(new Address(token), 'transferFrom', transferArgs, 0);
   }
 }
 
@@ -239,14 +255,12 @@ function transferTokensOut(token: string, to: string, amount: u256): void {
  * Load fee growth global
  */
 function loadFeeGrowthGlobal0(): u256 {
-  const data = Storage.get(feeGrowthGlobal0);
-  if (data.length === 0) return u256.Zero;
+  const data = Storage.has(feeGrowthGlobal0)? Storage.get(feeGrowthGlobal0) : u256ToBytes(u256.Zero);
   return bytesToU256(data);
 }
 
 function loadFeeGrowthGlobal1(): u256 {
-  const data = Storage.get(feeGrowthGlobal1);
-  if (data.length === 0) return u256.Zero;
+  const data =Storage.has(feeGrowthGlobal1) ?Storage.get(feeGrowthGlobal1) : u256ToBytes(u256.Zero);
   return bytesToU256(data);
 }
 
@@ -309,10 +323,13 @@ export function constructor(binaryArgs: StaticArray<u8>): void {
   saveFeeGrowthGlobal1(u256.Zero);
 
   // Get the factory owner
-  const factoryOwner = _getFactoryOwner(factoryIn);
+  // const factoryOwner = _getFactoryOwner(factoryIn);
+
+  const maxLiq = Tick.tickSpacingToMaxLiquidityPerTick(i32(tickSpacingIn));
+  Storage.set(maxLiquidityPerTick, u128ToBytes(maxLiq));
 
   // Set the contract owner to the factory owner
-  setOwner(new Args().add(factoryOwner.toString()).serialize());
+  setOwner(new Args().add(Context.caller().toString()).serialize());
 
   // Init Reeentrancy guard
   ReentrancyGuard.__ReentrancyGuard_init();
@@ -504,7 +521,7 @@ export function burn(binaryArgs: StaticArray<u8>): void {
   const feeGrowth0 = loadFeeGrowthGlobal0();
   const feeGrowth1 = loadFeeGrowthGlobal1();
 
-  const negativeLiquidityDelta = i128.Zero - i128.from(liquidityDelta);
+  const negativeLiquidityDelta = i128.sub(i128.Zero, i128.fromU128(liquidityDelta));
 
   updateTick(
     tickLower,
@@ -535,9 +552,11 @@ export function burn(binaryArgs: StaticArray<u8>): void {
     feeGrowthInside1
   );
 
-  // Add burned amounts to tokens owed
-  position.tokensOwed0 = SafeMathU128.add(position.tokensOwed0, u128.from(amounts.amount0));
-  position.tokensOwed1 = SafeMathU128.add(position.tokensOwed1, u128.from(amounts.amount1));
+  generateEvent(`Burn:${position.tokensOwed0}:${amounts.amount0}:${position.tokensOwed1}:${amounts.amount1}`);
+
+  // // Add burned amounts to tokens owed
+  // position.tokensOwed0 = SafeMathU128.add(position.tokensOwed0, u128.fromU256(amounts.amount0));
+  // position.tokensOwed1 = SafeMathU128.add(position.tokensOwed1, u128.fromU256(amounts.amount1));
 
   savePosition(owner, tickLower, tickUpper, position);
 
@@ -581,7 +600,7 @@ export function swap(binaryArgs: StaticArray<u8>): void {
 
   // Load pool state
   let state = PoolState.load();
-
+  generateEvent(`Swap:${sqrtPriceLimitX96}:${MAX_SQRT_RATIO}:${state.sqrtPriceX96}`);
   // Validate price limit
   if (zeroForOne) {
     assert(sqrtPriceLimitX96 < state.sqrtPriceX96, 'PRICE_LIMIT_INVALID');
@@ -600,7 +619,7 @@ export function swap(binaryArgs: StaticArray<u8>): void {
 
   if (amountSpecified > i128.Zero) {
     // Exact input swap
-    amountIn = u256.from(amountSpecified);
+    amountIn = u256.fromU128(u128.fromI128(amountSpecified));
 
     // Calculate fee
     const feeAmount = SafeMathU256.div(
@@ -620,7 +639,7 @@ export function swap(binaryArgs: StaticArray<u8>): void {
     if (state.liquidity > u128.Zero) {
       const feeGrowthDelta = SafeMathU256.div(
         SafeMathU256.mul(feeAmount, u256.fromU64(1000000)),
-        u256.from(state.liquidity)
+        u256.fromU128(state.liquidity)
       );
 
       if (zeroForOne) {
@@ -715,11 +734,11 @@ export function collect(binaryArgs: StaticArray<u8>): void {
   const token1 = Storage.get(TOKEN_1);
 
   if (amount0Collect > u128.Zero) {
-    transferTokensOut(token0, recipient, u256.from(amount0Collect));
+    transferTokensOut(token0, recipient, u256.fromU128(amount0Collect));
   }
 
   if (amount1Collect > u128.Zero) {
-    transferTokensOut(token1, recipient, u256.from(amount1Collect));
+    transferTokensOut(token1, recipient, u256.fromU128(amount1Collect));
   }
 
   generateEvent(`Collect:${recipient}:${tickLower}:${tickUpper}:${amount0Collect.toString()}:${amount1Collect.toString()}`);
@@ -809,10 +828,11 @@ export function getFactory(_: StaticArray<u8>): StaticArray<u8> {
  * Get fee growth global for token0
  */
 export function getFeeGrowthGlobal0(_: StaticArray<u8>): StaticArray<u8> {
-  const data = Storage.get(feeGrowthGlobal0);
-  if (data.length === 0) {
+ 
+  if (!Storage.has(feeGrowthGlobal0)) {
     return u256ToBytes(u256.Zero);
   }
+  const data = Storage.get(feeGrowthGlobal0);
   return data;
 }
 
@@ -820,10 +840,11 @@ export function getFeeGrowthGlobal0(_: StaticArray<u8>): StaticArray<u8> {
  * Get fee growth global for token1
  */
 export function getFeeGrowthGlobal1(_: StaticArray<u8>): StaticArray<u8> {
-  const data = Storage.get(feeGrowthGlobal1);
-  if (data.length === 0) {
+  
+  if (!Storage.has(feeGrowthGlobal1)) {
     return u256ToBytes(u256.Zero);
   }
+  const data = Storage.get(feeGrowthGlobal1);
   return data;
 }
 
@@ -847,10 +868,11 @@ export function getProtocolFees(_: StaticArray<u8>): StaticArray<u8> {
  * Get maximum liquidity per tick
  */
 export function getMaxLiquidityPerTick(_: StaticArray<u8>): StaticArray<u8> {
-  const data = Storage.get(maxLiquidityPerTick);
-  if (data.length === 0) {
+ 
+  if (!Storage.has(maxLiquidityPerTick)) {
     return u128ToBytes(u128.Zero);
   }
+  const data = Storage.get(maxLiquidityPerTick);
   return data;
 }
 
@@ -887,7 +909,7 @@ export function getPoolMetadata(_: StaticArray<u8>): StaticArray<u8> {
   const fee = bytesToU64(Storage.get(FEE));
   const tickSpacing = bytesToU64(Storage.get(TICK_SPACING));
   const factory = Storage.get(FACTORY);
-  const maxLiqPerTick = Storage.get(maxLiquidityPerTick);
+  const maxLiqPerTick= Storage.has(maxLiquidityPerTick) ? Storage.get(maxLiquidityPerTick) : stringToBytes("0");
 
   return new Args()
     .add(token0)
@@ -895,7 +917,7 @@ export function getPoolMetadata(_: StaticArray<u8>): StaticArray<u8> {
     .add(fee)
     .add(tickSpacing)
     .add(factory)
-    .addBytes(maxLiqPerTick)
+    .add(maxLiqPerTick)
     .serialize();
 }
 

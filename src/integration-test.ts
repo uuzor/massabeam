@@ -24,6 +24,8 @@ import {
   Mas,
   SmartContract,
   JsonRpcProvider,
+  strToBytes,
+  byteToBool,
 } from '@massalabs/massa-web3';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -101,7 +103,7 @@ async function main(): Promise<void> {
     const account = await Account.fromEnv();
     const provider = JsonRpcProvider.buildnet(account);
 
-    log(`Account: ${account.address}`);
+    log(`Account: ${account.address.toString()}`);
 
     const addresses = loadAddresses();
     log(`Factory: ${addresses.factory}`);
@@ -116,11 +118,11 @@ async function main(): Promise<void> {
     // ========================================
     logSection('🏊 STEP 2: CREATE POOL (WMAS/USDC, 0.3% fee)');
 
-    const fee = 3000; // 0.3%
-    const tickSpacing = 60;
+    const fee = 3000n; // 0.3%
+    const tickSpacing = 60n;
 
     log(`Creating pool: WMAS/USDC`);
-    log(`Fee: ${fee / 10000}%`);
+    log(`Fee: 0.3 ${fee / 10000n}%`);
     log(`Tick Spacing: ${tickSpacing}`);
 
     const createPoolTx = await factoryContract.call(
@@ -130,7 +132,7 @@ async function main(): Promise<void> {
         .addString(USDC_ADDRESS)
         .addU64(fee)
         .addU64(tickSpacing),
-      { coins: Mas.fromString('0.1'), maxGas: BigInt(200_000_000) }
+      { coins: Mas.fromString('0.2'), maxGas: BigInt(300_000_000) }
     );
 
     logDebug(`Tx ID: ${createPoolTx.id}`);
@@ -138,14 +140,24 @@ async function main(): Promise<void> {
 
     const createPoolEvents = await createPoolTx.getFinalEvents();
     logDebug(`Received ${createPoolEvents.length} events`);
-
+    
     for (const event of createPoolEvents) {
+      logDebug(event.data);
       if (event.data.includes('PoolCreated')) {
         logEvent(event.data);
       }
     }
 
     logSuccess('Pool created');
+
+    const isExist = await factoryContract.read(
+      "isPoolExist",
+      new Args()
+        .addString(WMAS_ADDRESS)
+        .addString(USDC_ADDRESS)
+        .addU64(fee)
+    );
+    console.log(byteToBool(isExist.value));
 
     // Get pool address
     const poolAddressBytes = await factoryContract.read(
@@ -155,6 +167,8 @@ async function main(): Promise<void> {
         .addString(USDC_ADDRESS)
         .addU64(fee)
     );
+
+    console.log(poolAddressBytes);
 
     const poolAddressArgs = new Args(poolAddressBytes.value);
     const POOL_ADDRESS = poolAddressArgs.nextString();
@@ -170,8 +184,8 @@ async function main(): Promise<void> {
 
     const amount0 = ONE_MAS * BigInt(100); // 100 MAS
     const amount1 = ONE_USDC * BigInt(1000); // 1000 USDC
-    const tickLower = -887220;
-    const tickUpper = 887220;
+    const tickLower = -887220n;
+    const tickUpper = 887220n;
 
     log(`Amount WMAS: ${amount0} (100 MAS)`);
     log(`Amount USDC: ${amount1} (1000 USDC)`);
@@ -180,7 +194,7 @@ async function main(): Promise<void> {
     const mintTx = await poolContract.call(
       'mint',
       new Args()
-        .addString(account.address)
+        .addString(account.address.toString())
         .addI32(tickLower)
         .addI32(tickUpper)
         .addU128(BigInt(1_000_000))
@@ -248,7 +262,7 @@ async function main(): Promise<void> {
     const swapTx = await poolContract.call(
       'swap',
       new Args()
-        .addString(account.address)
+        .addString(account.address.toString())
         .addBool(true) // zeroForOne
         .addI128(swapAmount)
         .addU256(BigInt('4295128739')), // min price
@@ -281,7 +295,7 @@ async function main(): Promise<void> {
     const limitOrderAmount = ONE_MAS * BigInt(5); // 5 MAS
     const minAmountOut = ONE_USDC * BigInt(45); // 45 USDC
     const limitPrice = BigInt('10000000000000000000'); // 10 USDC/MAS
-    const orderType = 1; // SELL
+    const orderType = 1n; // SELL
     const expiry = BigInt(0); // No expiry
 
     log(`Creating SELL limit order:`);
@@ -350,7 +364,7 @@ async function main(): Promise<void> {
     log(`  Amount: ${amountIn}`);
     log(`  Min Out: ${minOut}`);
     log(`  Limit Price: ${limitPriceRead}`);
-    log(`  Type: ${orderTypeRead === 0 ? 'BUY' : 'SELL'}`);
+    log(`  Type: ${orderTypeRead === 0n ? 'BUY' : 'SELL'}`);
     log(`  Filled: ${filled}`);
     log(`  Cancelled: ${cancelled}`);
     logSuccess('Order details retrieved');
@@ -361,7 +375,7 @@ async function main(): Promise<void> {
       new Args().addU256(ORDER_ID)
     );
     const orderStatus = new Args(orderStatusBytes.value).nextU8();
-    const statusText = ['Active', 'Filled', 'Cancelled', 'Expired'][orderStatus];
+    const statusText = ['Active', 'Filled', 'Cancelled', 'Expired'][Number(orderStatus)];
     log(`Order Status: ${statusText} (${orderStatus})`);
 
     // Query order statistics
@@ -387,9 +401,9 @@ async function main(): Promise<void> {
     // Query pending order IDs
     const pendingOrderIdsBytes = await orderManagerContract.read('getPendingOrders', new Args());
     const pendingArgs = new Args(pendingOrderIdsBytes.value);
-    const pendingCount = pendingArgs.nextU64();
-    log(`Pending Order IDs (${pendingCount}):`);
-    for (let i = 0; i < Number(pendingCount); i++) {
+    const pendingCount2 = pendingArgs.nextU64();
+    log(`Pending Order IDs (${pendingCount2}):`);
+    for (let i = 0; i < Number(pendingCount2); i++) {
       const pendingOrderId = pendingArgs.nextU256();
       log(`  - Order ID: ${pendingOrderId}`);
     }
@@ -407,7 +421,7 @@ async function main(): Promise<void> {
     const triggerSwapTx = await poolContract.call(
       'swap',
       new Args()
-        .addString(account.address)
+        .addString(account.address.toString())
         .addBool(false) // USDC → WMAS
         .addI128(triggerSwapAmount)
         .addU256(BigInt('1461446703485210103287273052203988822378723970342')), // max price
@@ -477,7 +491,7 @@ async function main(): Promise<void> {
 
       const gridOrderManager = new SmartContract(provider, addresses.gridOrderManager);
 
-      const gridLevels = 5;
+      const gridLevels = 5n;
       const lowerPrice = BigInt('7000000000000000000'); // 7 USDC/MAS
       const upperPrice = BigInt('13000000000000000000'); // 13 USDC/MAS
       const amountPerLevel = ONE_MAS * BigInt(2); // 2 MAS per level
@@ -573,13 +587,14 @@ async function main(): Promise<void> {
       const levelCount = levelsArgs.nextU64();
       log(`Grid Levels (${levelCount}):`);
       for (let i = 0; i < Number(levelCount); i++) {
-        const levelBytes = levelsArgs.nextBytes();
-        const levelArgs = new Args(levelBytes);
+        const levelBytes = levelsArgs.nextString();
+        console.log(levelBytes);
+        const levelArgs = new Args(strToBytes(levelBytes));
         const levelPrice = levelArgs.nextU256();
         const levelAmount = levelArgs.nextU256();
         const levelStatus = levelArgs.nextU8();
         const levelLastFill = levelArgs.nextU64();
-        const statusStr = ['IDLE', 'BUY_PENDING', 'SELL_PENDING'][levelStatus];
+        const statusStr = ['IDLE', 'BUY_PENDING', 'SELL_PENDING'][Number(levelStatus)];
         log(`  Level ${i}: Price ${levelPrice}, Amount ${levelAmount}, Status ${statusStr}`);
       }
 
@@ -603,7 +618,7 @@ async function main(): Promise<void> {
       const gridSwap1Tx = await poolContract.call(
         'swap',
         new Args()
-          .addString(account.address)
+          .addString(account.address.toString())
           .addBool(true) // WMAS → USDC
           .addI128(ONE_MAS * BigInt(20))
           .addU256(BigInt('4295128739')),
@@ -619,7 +634,7 @@ async function main(): Promise<void> {
       const gridSwap2Tx = await poolContract.call(
         'swap',
         new Args()
-          .addString(account.address)
+          .addString(account.address.toString())
           .addBool(false) // USDC → WMAS
           .addI128(ONE_USDC * BigInt(150))
           .addU256(BigInt('1461446703485210103287273052203988822378723970342')),
@@ -635,7 +650,7 @@ async function main(): Promise<void> {
       const gridSwap3Tx = await poolContract.call(
         'swap',
         new Args()
-          .addString(account.address)
+          .addString(account.address.toString())
           .addBool(true)
           .addI128(ONE_MAS * BigInt(15))
           .addU256(BigInt('4295128739')),

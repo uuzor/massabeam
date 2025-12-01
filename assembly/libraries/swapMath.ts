@@ -61,8 +61,14 @@ export function computeSwapStep(
  * Get 2^96 as u256
  */
 function getSqrtPrice96(): u256 {
-  const one = 1;
-  return u256.fromF64(one << 96);
+  // 2^96 = 79228162514264337593543950336
+  // Build by combining smaller parts: 2^96 = 2^48 * 2^48
+  // 2^48 = 281474976710656
+  const pow48 = 281474976710656;
+  const part1 = u128.fromU64(pow48);
+  const part2 = u128.fromU64(pow48);
+  const result = u128.mul(part1, part2);
+  return u256.fromU128(result);
 }
 
 /**

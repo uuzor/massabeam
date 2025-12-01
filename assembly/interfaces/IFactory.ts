@@ -33,4 +33,10 @@ export class IFactory {
       bytesToString(call(this._origin, 'ownerAddress', new Args(), 0)),
     );
   }
+
+  getPool(tokenO: string, token1: string , fee : u64): Address {
+    return new Address(
+      bytesToString(call(this._origin, 'getPool', new Args().add(tokenO).add(token1).add(fee), 0)),
+    );
+  }
 }

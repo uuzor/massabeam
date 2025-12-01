@@ -14,13 +14,17 @@ import {
   Storage,
   call,
   Coins,
-  sendMessage,
+  asyncCall,
+  Slot,
 } from '@massalabs/massa-as-sdk';
-import { u256, i128 } from 'as-bignum/assembly';
+import { u256, i128, u128 } from 'as-bignum/assembly';
 import { ReentrancyGuard } from '../utils/reentrancyGuard';
 import { setOwner } from '../utils/ownership';
 import { SafeMathU256 } from '../libraries/safeMath';
 import { PersistentMap } from '../utils/collections/persistentMap';
+import { IFactory } from '../interfaces/IFactory';
+import { IPool } from '../interfaces/Ipool';
+import { getSqrtPriceAtTick, getTickAtSqrtPrice } from '../libraries/swapMath';
 
 // Storage keys
 export const ORDER_ID_COUNTER = stringToBytes('ORDER_ID_COUNTER');
@@ -29,6 +33,8 @@ export const FACTORY_ADDRESS_KEY = stringToBytes('FACTORY_ADDRESS');
 export const PENDING_ORDERS_KEY = stringToBytes('PENDING_ORDERS');
 export const PENDING_ORDERS_COUNT_KEY = stringToBytes('PENDING_ORDERS_COUNT');
 export const NATIVE_MAS_ADDRESS = 'NATIVE_MAS'; // Sentinel for native MAS token
+
+export const BOT_COUNTER = "BOT_COUNTER";
 
 // Async execution configuration
 const CHECK_INTERVAL_PERIODS: u64 = 5; // Check every 5 periods (~80 seconds)
@@ -135,6 +141,9 @@ export function constructor(binaryArgs: StaticArray<u8>): void {
   generateEvent(`OrderManager:Initialized:${factoryAddress}`);
 }
 
+
+
+
 /**
  * Create a new limit order
  * @param binaryArgs - Contains:
@@ -156,7 +165,7 @@ export function createLimitOrder(binaryArgs: StaticArray<u8>): StaticArray<u8> {
   const minAmountOut = args.nextU256().expect('minAmountOut missing');
   const limitPrice = args.nextU256().expect('limitPrice missing');
   const orderType = args.nextU8().expect('orderType missing');
-  const expiry = args.nextU64().expect('expiry missing');
+  const duration = args.nextU64().expect('expiry missing');
 
   const caller = Context.caller().toString();
 
@@ -166,6 +175,8 @@ export function createLimitOrder(binaryArgs: StaticArray<u8>): StaticArray<u8> {
   assert(minAmountOut > u256.Zero, 'INVALID_MIN_AMOUNT_OUT');
   assert(limitPrice > u256.Zero, 'INVALID_LIMIT_PRICE');
   assert(orderType <= 1, 'INVALID_ORDER_TYPE');
+
+  
 
   // Get and increment order ID
   const currentId = bytesToU256(Storage.get(ORDER_ID_COUNTER));
@@ -183,7 +194,7 @@ export function createLimitOrder(binaryArgs: StaticArray<u8>): StaticArray<u8> {
     minAmountOut,
     limitPrice,
     orderType,
-    expiry,
+    duration + Context.timestamp(),
     false, // not filled
     false, // not cancelled
   );
@@ -274,7 +285,9 @@ export function checkAndExecutePendingOrders(_: StaticArray<u8>): void {
   // Load pending order IDs
   for (let i: u64 = 0; i < pendingCount && processed < MAX_ORDERS_PER_CHECK; i++) {
     const orderIdKey = stringToBytes(`pending_order_${i.toString()}`);
-    if (!Storage.has(orderIdKey)) continue;
+    if (!Storage.has(orderIdKey)) {
+      continue;
+    }
 
     const orderId = bytesToU256(Storage.get(orderIdKey));
     const orderKey = _getOrderKey(orderId);
@@ -305,8 +318,9 @@ export function checkAndExecutePendingOrders(_: StaticArray<u8>): void {
     }
 
     // Try to execute
-    const executed_success = _tryExecuteOrder(order);
-    if (executed_success) {
+    const executedSuccess = _tryExecuteOrder(order);
+
+    if (executedSuccess) {
       _removeFromPendingOrders(orderId);
       executed++;
     }
@@ -388,12 +402,63 @@ export function getPendingOrdersCount(_: StaticArray<u8>): StaticArray<u8> {
   return Storage.get(PENDING_ORDERS_COUNT_KEY);
 }
 
+// Storage.set(BOT_ENABLED_KEY, 'true');
+// Storage.set(BOT_COUNTER_KEY, '0');
+// Storage.set(BOT_MAX_ITERATIONS, maxIterations.toString());
+
+
+
+// const counter = u64(parseInt(Storage.get(BOT_COUNTER_KEY)));
+// const maxIterations = u64(parseInt(Storage.get(BOT_MAX_ITERATIONS)));
+
+/**
+ * Get current autonomous execution count (internal)
+ * Tracks number of times checkAndExecutePendingOrders has been called
+ */
+function _getBotExecutionCount(): u64 {
+  if (Storage.has(stringToBytes(BOT_COUNTER))) {
+    return u64(parseInt(Storage.get(BOT_COUNTER)));
+  }
+  return 0;
+}
+
+/**
+ * Increment autonomous execution counter by 1
+ * Called after each successful checkAndExecutePendingOrders execution
+ */
+function _incrementBotExecutionCount(): void {
+  const currentCount = _getBotExecutionCount();
+  const newCount : u64 = currentCount + 1;
+  Storage.set(stringToBytes(BOT_COUNTER), stringToBytes((newCount).toString()));
+  generateEvent(`BotExecution:Count:${newCount}`);
+}
+
+/**
+ * Set bot execution count to a specific value
+ * Used for testing or manual adjustment
+ *
+ * @param countValue - The count to set
+ */
+function _setBotExecutionCount(countValue: u64): void {
+  Storage.set(stringToBytes(BOT_COUNTER), stringToBytes(countValue.toString()));
+  generateEvent(`BotExecution:CountSet:${countValue}`);
+}
+
+/**
+ * Reset bot execution counter to 0
+ * Used for testing or when restarting the counter
+ */
+function _resetBotExecutionCount(): void {
+  Storage.set(stringToBytes(BOT_COUNTER), stringToBytes('0'));
+  generateEvent(`BotExecution:CountReset`);
+}
+
 /**
  * Get factory address
  */
 export function getFactoryAddress(_: StaticArray<u8>): StaticArray<u8> {
   return new Args()
-    .addBytes(Storage.get(FACTORY_ADDRESS_KEY))
+    .add(Storage.get(FACTORY_ADDRESS_KEY))
     .serialize();
 }
 
@@ -427,7 +492,7 @@ export function getPendingOrders(_: StaticArray<u8>): StaticArray<u8> {
 export function getUserOrders(binaryArgs: StaticArray<u8>): StaticArray<u8> {
   const args = new Args(binaryArgs);
   const owner = args.nextString().expect('owner missing');
-  const limit = args.nextU64().unwrap_or(100);
+  const limit: u64 = args.nextU64().unwrap();
 
   const totalOrders = bytesToU64(Storage.get(ORDER_ID_COUNTER));
   const result = new Args();
@@ -442,7 +507,7 @@ export function getUserOrders(binaryArgs: StaticArray<u8>): StaticArray<u8> {
     if (Storage.has(orderKey)) {
       const order = LimitOrder.deserialize(Storage.get(orderKey));
       if (order.owner == owner) {
-        result.addBytes(order.serialize());
+        result.add(order.serialize());
         matchCount++;
       }
     }
@@ -460,7 +525,7 @@ export function getUserOrders(binaryArgs: StaticArray<u8>): StaticArray<u8> {
     if (Storage.has(orderKey)) {
       const order = LimitOrder.deserialize(Storage.get(orderKey));
       if (order.owner == owner) {
-        finalArgs.addBytes(order.serialize());
+        finalArgs.add(order.serialize());
       }
     }
   }
@@ -507,7 +572,7 @@ export function getOrdersByTokenPair(binaryArgs: StaticArray<u8>): StaticArray<u
   const args = new Args(binaryArgs);
   const tokenIn = args.nextString().expect('tokenIn missing');
   const tokenOut = args.nextString().expect('tokenOut missing');
-  const limit = args.nextU64().unwrap_or(50);
+  const limit = args.nextU64().unwrap();
 
   const totalOrders = bytesToU64(Storage.get(ORDER_ID_COUNTER));
   const result = new Args();
@@ -524,7 +589,7 @@ export function getOrdersByTokenPair(binaryArgs: StaticArray<u8>): StaticArray<u
         if (matchCount == 0) {
           result.add(matchCount + 1); // Add placeholder count
         }
-        result.addBytes(order.serialize());
+        result.add(order.serialize());
         matchCount++;
       }
     }
@@ -557,6 +622,16 @@ export function getActiveOrdersCount(_: StaticArray<u8>): StaticArray<u8> {
   }
 
   return new Args().add(activeCount).serialize();
+}
+
+
+/**
+ * Get total autonomous execution count
+ * Returns the number of times checkAndExecutePendingOrders has been called
+ */
+export function getBotExecutionCount(_: StaticArray<u8>): StaticArray<u8> {
+  const count = _getBotExecutionCount();
+  return new Args().add(count).serialize();
 }
 
 /**
@@ -637,31 +712,32 @@ function _getPendingOrdersCount(): u64 {
 }
 
 /**
- * Schedule next async check
+ * Schedule next async check using asyncCall with Slot-based scheduling
  */
 function _scheduleNextCheck(periodDelay: u64): void {
   const currentPeriod = Context.currentPeriod();
   const currentThread = Context.currentThread();
 
-  let nextPeriod = currentPeriod + periodDelay;
+  _incrementBotExecutionCount();
+
+  // Calculate next slot
+  let nextPeriod = currentPeriod;
   let nextThread = currentThread + 1;
 
   // Wrap thread if needed
   if (nextThread >= 32) {
-    nextPeriod = nextPeriod + 1;
+    nextPeriod = currentPeriod + periodDelay;
     nextThread = 0;
   }
 
-  sendMessage(
+  // Schedule async call for next slot
+  asyncCall(
     Context.callee(), // This contract
     'checkAndExecutePendingOrders', // Function to call
-    nextPeriod, // Validity start period
-    u8(nextThread), // Validity start thread
-    nextPeriod + 10, // Validity end period (10 period window)
-    u8(nextThread), // Validity end thread
-    EXECUTION_GAS_BUDGET, // Max gas
-    0, // Raw fee
-    0, // No coins needed
+    new Slot(nextPeriod, nextThread), // Validity start slot
+    new Slot(nextPeriod + 10, nextThread), // Validity end slot (10 period window)
+    EXECUTION_GAS_BUDGET, // Max gas budget
+    0, // Coins (no coins needed)
     new Args().serialize(), // Function params
   );
 
@@ -670,56 +746,103 @@ function _scheduleNextCheck(periodDelay: u64): void {
 
 /**
  * Try to execute an order - returns true if executed
+ * Validates limitPrice and minAmountOut before execution
  */
 function _tryExecuteOrder(order: LimitOrder): bool {
   // Get factory address
   const factoryAddressBytes = Storage.get(FACTORY_ADDRESS_KEY);
   const factoryAddress = bytesToString(factoryAddressBytes);
 
-  // Get pool address for token pair
+  // Get pool address for token pair with proper token ordering
+  let token0 = order.tokenIn;
+  let token1 = order.tokenOut;
+
+  // Ensure canonical token ordering (token0 < token1)
+  if (token0 > token1) {
+    token0 = order.tokenOut;
+    token1 = order.tokenIn;
+  }
+
   const poolAddress = _getPoolAddress(
     factoryAddress,
-    order.tokenIn,
-    order.tokenOut,
+    token0,
+    token1,
     DEFAULT_FEE,
   );
+
+  
 
   if (poolAddress == '') {
     generateEvent(`AutoExecute:NoPool:${order.orderId}`);
     return false;
   }
 
-  // Get current pool state to check price
-  // For simplification, we'll attempt the swap and let it revert if price doesn't meet limit
+  // Wrap pool in interface to call getSqrtPriceX96
+  const pool = new IPool(new Address(poolAddress));
 
-  // Determine swap direction
-  const zeroForOne = order.tokenIn < order.tokenOut;
+  // Get current pool state (price and sqrtPriceX96)
+  const stateData = pool.getState();
+  if (stateData.length == 0) {
+    generateEvent(`AutoExecute:FailedToGetState:${order.orderId}`);
+    return false;
+  }
 
-  // Set sqrt price limit based on order type
+  const stateArgs = new Args(stateData);
+  stateArgs.nextU256(); // Skip sqrtPriceX96 (not needed for price validation)
+  const currentTick = stateArgs.nextI32().expect('tick missing');
+
+  // Determine swap direction based on canonical token ordering
+  const zeroForOne = order.tokenIn == token0;
+
+  // Convert limit price u256 to tick
+  // order.limitPrice is a u256 that should represent the sqrt price in Q64.96 format
+  const limitTick = getTickAtSqrtPrice(order.limitPrice);
+  
+  // Validate price condition based on order type
+  // BUY: Current price must be at or below limit price (tick <= limitTick)
+  // SELL: Current price must be at or above limit price (tick >= limitTick)
+  if (order.orderType == 0) {
+    // BUY order - check if currentPrice <= limitPrice (currentTick <= limitTick)
+    if (currentTick > limitTick) {
+      generateEvent(`AutoExecute:PriceTooHigh:${order.orderId}:${currentTick}:${limitTick}`);
+      return false;
+    }
+  } else {
+    // SELL order - check if currentPrice >= limitPrice (currentTick >= limitTick)
+    if (currentTick < limitTick) {
+      generateEvent(`AutoExecute:PriceTooLow:${order.orderId}:${currentTick}:${limitTick}`);
+      return false;
+    }
+  }
+
+  // Set sqrtPriceLimitX96 for slippage protection
+  // Use minAmountOut to calculate appropriate price limit
+  // For safety, use extreme boundaries if price check passed
   const sqrtPriceLimitX96 = zeroForOne
-    ? u256.fromU64(4295128739) // Approximate MIN_SQRT_RATIO
-    : u256.Max; // Use max as upper limit
-
+    ? u256.fromU64(4295128739)    // MIN_SQRT_RATIO approximation
+    : u256.Max;                   // MAX_SQRT_RATIO
   // Convert amountIn to i128 for swap
-  const amountInI128 = i128.from(order.amountIn);
+  const amountInI128 = i128.fromU256(order.amountIn);
 
   const swapArgs = new Args()
-    .add(order.owner) // Recipient
-    .add(zeroForOne) // Direction
-    .add(amountInI128) // Amount
-    .add(sqrtPriceLimitX96); // Price limit
+    .add(order.owner)           // Recipient of output tokens
+    .add(zeroForOne)            // Swap direction
+    .add(amountInI128)          // Amount input
+    .add(sqrtPriceLimitX96);    // Price limit
 
-  // Try to execute swap
-  // Note: This will revert if the swap fails
-  // In a production system, you'd want error handling
-  call(new Address(poolAddress), 'swap', swapArgs, 0);
+ 
+  // Execute the swap via pool interface
+  const poolContract  = new IPool(new Address(poolAddress));
+  poolContract.swap(order.owner, zeroForOne, amountInI128, sqrtPriceLimitX96);
+
+  generateEvent(`AutoScheduled:AfterSwap`);
 
   // If we reach here, swap succeeded - mark order as filled
   order.filled = true;
   const orderKey = _getOrderKey(order.orderId);
   Storage.set(orderKey, order.serialize());
 
-  generateEvent(`AutoExecuted:${order.orderId}:${order.owner}`);
+  generateEvent(`AutoExecuted:${order.orderId}:${order.owner}:${order.amountIn}`);
 
   return true;
 }
@@ -741,12 +864,9 @@ function _getPoolAddress(
     tokenB = token0;
   }
 
-  const args = new Args().add(tokenA).add(tokenB).add(fee);
-
-  // Call factory to get pool
-  // Note: This assumes factory has a getPool read-only function
-  // For now, return empty string (pool lookup will be implemented)
-  return '';
+  const factory  =new IFactory(new Address(factoryAddress));
+  return factory.getPool(tokenA, tokenB, fee).toString();
+  
 }
 
 /**

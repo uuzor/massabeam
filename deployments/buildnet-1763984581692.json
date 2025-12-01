@@ -1,0 +1,69 @@
+{
+  "network": "buildnet",
+  "deployedAt": "2025-11-24T11:43:01.691Z",
+  "deployer": {
+    "serializer": {},
+    "versioner": {},
+    "version": 0,
+    "bytes": {
+      "0": 0,
+      "1": 0,
+      "2": 175,
+      "3": 87,
+      "4": 253,
+      "5": 218,
+      "6": 45,
+      "7": 146,
+      "8": 189,
+      "9": 13,
+      "10": 27,
+      "11": 66,
+      "12": 250,
+      "13": 161,
+      "14": 23,
+      "15": 211,
+      "16": 246,
+      "17": 139,
+      "18": 69,
+      "19": 129,
+      "20": 238,
+      "21": 41,
+      "22": 205,
+      "23": 144,
+      "24": 234,
+      "25": 156,
+      "26": 109,
+      "27": 184,
+      "28": 14,
+      "29": 176,
+      "30": 128,
+      "31": 69,
+      "32": 21,
+      "33": 79
+    },
+    "isEOA": true
+  },
+  "contracts": {
+    "factory": "AS1fLmw3zy4xuZGd4FBSJFEQnYrgEZTiVb4jSdoatsGXfjztJya9",
+    "orderManager": "AS1yd5AFQ9coMR3JBeYj78BfbGVgM8uoBY4hWK8B215kfmRmCqav",
+    "recurringOrderManager": "AS1HNo1qTvgVW7ZTuudzRuHfJ1dEywzQanGW2qKjvijmT2PYgJnQ",
+    "gridOrderManager": "AS1HvMH7UG7tewZ1AFRL9d7jDSYMxKsKkdHK3F8pEQmCtWhXpjkT"
+  },
+  "feeTiers": [
+    {
+      "fee": 500,
+      "tickSpacing": 10,
+      "label": "0.05%"
+    },
+    {
+      "fee": 3000,
+      "tickSpacing": 60,
+      "label": "0.3%"
+    },
+    {
+      "fee": 10000,
+      "tickSpacing": 200,
+      "label": "1%"
+    }
+  ]
+}

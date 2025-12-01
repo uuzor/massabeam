@@ -11,7 +11,7 @@ html, body, #root {
 }
 
 body {
-  background: radial-gradient(ellipse at 60% 10%, #232857 0%, #10131e 100%) !important;
+ 
   color: #f2f6f9;
   font-family: 'Poppins', Arial, sans-serif;
   font-size: 1rem;

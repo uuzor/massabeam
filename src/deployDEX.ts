@@ -31,16 +31,16 @@ console.log('');
 // Deployment configuration
 const DEPLOYMENT_CONFIG = {
   factory: {
-    coins: Mas.fromString('0.1'),
+    coins: Mas.fromString('2'),
     maxGas: BigInt(3_000_000_000),
   },
   orderManager: {
-    coins: Mas.fromString('0.1'),
+    coins: Mas.fromString('2'),
     maxGas: BigInt(3_000_000_000),
   },
   enableFeeAmount: {
-    maxGas: BigInt(2_000_000_000),
-    fee: Mas.fromString('0.01'),
+    maxGas: BigInt(3_000_000_000),
+    fee: Mas.fromString('2'),
   },
 };
 
@@ -50,6 +50,8 @@ const FEE_TIERS = [
   { fee: 3000, tickSpacing: 60, label: '0.3%' },    // LOW
   { fee: 10000, tickSpacing: 200, label: '1%' },    // MEDIUM
 ];
+const WMAS_ADDRESS = 'AS12N76WPYB3QNYKGhV2jZuQs1djdhNJLQgnm7m52pHWecvvj1fCQ';
+const USDC_ADDRESS = 'AS1nDAemyLSLUuNZ747Dt3NgzEC9WGCkmjRvY9hZwW2928Fxb4Fk';
 
 /**
  * Deploy Factory contract
@@ -58,9 +60,25 @@ async function deployFactory(): Promise<string> {
   console.log('📦 Deploying Factory Contract...');
 
   const byteCode = getScByteCode('build', 'factory.wasm');
+  const poolByteCode = getScByteCode('build', 'pool.wasm');
+  
+  const fee = 3000n; // 0.3%
+  const tickSpacing = 60n;
+  const pool = await SmartContract.deploy(
+    provider,
+    poolByteCode,
+    new Args().addString(WMAS_ADDRESS).addString(WMAS_ADDRESS).addString(USDC_ADDRESS).addU64(fee).addU64(tickSpacing),
+    {
+      coins: DEPLOYMENT_CONFIG.factory.coins,
+      maxGas: DEPLOYMENT_CONFIG.factory.maxGas,
+    },
+  );
+
+  console.log(pool.address);
+
 
   // Factory constructor doesn't need arguments
-  const constructorArgs = new Args();
+  const constructorArgs = new Args().addString(pool.address);
 
   const contract = await SmartContract.deploy(
     provider,
@@ -90,7 +108,7 @@ async function enableFeeAmounts(factoryAddress: string): Promise<void> {
         .addU64(BigInt(tier.fee))
         .addU64(BigInt(tier.tickSpacing));
 
-      await provider.callSC({
+      const games  = await provider.callSC({
         target: factoryAddress,
         func: 'enableFeeAmount',
         parameter: args.serialize(),
@@ -98,6 +116,8 @@ async function enableFeeAmounts(factoryAddress: string): Promise<void> {
         maxGas: DEPLOYMENT_CONFIG.enableFeeAmount.maxGas,
         fee: Mas.fromMas(DEPLOYMENT_CONFIG.enableFeeAmount.fee),
       });
+     
+      console.log(games);
 
       console.log(`  ✅ ${tier.label} enabled`);
     } catch (error: any) {
@@ -134,7 +154,7 @@ async function deployOrderManager(factoryAddress: string): Promise<string> {
 
 
 async function deployGridOrderManager(factoryAddress: string): Promise<string> {
-  console.log('\n📦 Deploying OrderManager Contract...');
+  console.log('\n📦 Deploying deployGridOrderManager Contract...');
 
   const byteCode = getScByteCode('build', 'gridOrderManager.wasm');
 
@@ -152,13 +172,13 @@ async function deployGridOrderManager(factoryAddress: string): Promise<string> {
     },
   );
 
-  console.log('✅ OrderManager deployed at:', contract.address);
+  console.log('✅ deployGridOrderManager deployed at:', contract.address);
   return contract.address;
 }
 
 
 async function deployRecurringOrderManager(factoryAddress: string): Promise<string> {
-  console.log('\n📦 Deploying OrderManager Contract...');
+  console.log('\n📦 Deploying deployRecurringOrderManager Contract...');
 
   const byteCode = getScByteCode('build', 'recurringOrderManager.wasm');
 
@@ -176,7 +196,7 @@ async function deployRecurringOrderManager(factoryAddress: string): Promise<stri
     },
   );
 
-  console.log('✅ OrderManager deployed at:', contract.address);
+  console.log('✅ deployRecurringOrderManager deployed at:', contract.address);
   return contract.address;
 }
 

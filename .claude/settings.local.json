@@ -3,7 +3,9 @@
     "allow": [
       "Bash(dir:*)",
       "Bash(nul)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(findstr:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": [],
     "ask": []

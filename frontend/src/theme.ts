@@ -1,79 +1,71 @@
 /**
- * Design System - Professional Theme
- * Vercel-inspired minimal design
+ * Design System - Technical Cyberpunk Theme
+ * Inspired by Reactive.network's matrix-like interface
+ * Monospace typography with electric green accent system
  */
 
 export const theme = {
   colors: {
-    // Backgrounds
+    // Dark Mode Foundation
     background: {
-      primary: '#ffffff',
-      secondary: '#fafafa',
-      tertiary: '#f5f5f5',
-      elevated: '#ffffff',
-      overlay: 'rgba(0, 0, 0, 0.5)',
+      base: 'hsl(12 8% 8%)',        // Deep charcoal #161312
+      surface1: 'hsl(12 8% 12%)',   // Card backgrounds #211d1c
+      surface2: 'hsl(12 8% 16%)',   // Elevated elements #2b2625
+      border: 'hsl(12 8% 24%)',     // Dividers/grid #423b39
+      overlay: 'rgba(0, 0, 0, 0.8)',
     },
-    // Borders
-    border: {
-      light: '#e5e5e5',
-      medium: '#d4d4d4',
-      dark: '#a3a3a3',
+
+    // Accent System
+    accent: {
+      primary: 'hsl(142 76% 48%)',    // Electric green #1de676 (active/success)
+      secondary: 'hsl(210 100% 56%)', // Cyan #1eaaff (info/secondary)
+      warning: 'hsl(38 92% 50%)',     // Amber #f59e0b (pending)
+      error: 'hsl(0 84% 60%)',        // Red (errors/cancel)
     },
+
     // Text
     text: {
-      primary: '#171717',
-      secondary: '#525252',
-      tertiary: '#737373',
-      disabled: '#a3a3a3',
-      inverse: '#ffffff',
+      primary: 'hsl(0 0% 98%)',     // Near white #fafafa
+      secondary: 'hsl(0 0% 71%)',   // Muted gray #b5b5b5
+      disabled: 'hsl(0 0% 45%)',    // Dim gray #737373
+      inverse: '#000000',
     },
-    // Accent (minimal, professional)
-    accent: {
-      primary: '#000000',
-      secondary: '#404040',
-      hover: '#171717',
-    },
-    // Status
+
+    // Semantic States
     status: {
-      success: '#059669',
-      error: '#dc2626',
-      warning: '#f59e0b',
-      info: '#0284c7',
-    },
-    // Subtle highlights
-    highlight: {
-      blue: '#eff6ff',
-      green: '#f0fdf4',
-      yellow: '#fefce8',
-      red: '#fef2f2',
+      active: 'hsl(142 76% 48%)',   // Green
+      filled: 'hsl(210 100% 56%)',  // Cyan
+      cancelled: 'hsl(0 84% 60%)',  // Red
+      pending: 'hsl(38 92% 50%)',   // Amber
     },
   },
 
   spacing: {
-    xs: '4px',
-    sm: '8px',
-    md: '16px',
-    lg: '24px',
-    xl: '32px',
-    xxl: '48px',
-    xxxl: '64px',
+    xs: '2px',
+    sm: '4px',
+    md: '8px',
+    lg: '16px',
+    xl: '24px',
+    xxl: '32px',
+    xxxl: '48px',
+    xxxxl: '64px',
   },
 
   typography: {
     fontFamily: {
-      sans: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif',
-      mono: '"SF Mono", "Monaco", "Inconsolata", "Roboto Mono", monospace',
+      mono: "'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace",
     },
     fontSize: {
-      xs: '0.75rem',    // 12px
-      sm: '0.875rem',   // 14px
-      base: '1rem',     // 16px
-      lg: '1.125rem',   // 18px
-      xl: '1.25rem',    // 20px
-      '2xl': '1.5rem',  // 24px
-      '3xl': '1.875rem',// 30px
-      '4xl': '2.25rem', // 36px
-      '5xl': '3rem',    // 48px
+      xs: '0.75rem',      // 12px - Label/Caption
+      sm: '0.875rem',     // 14px - Body small
+      base: '1rem',       // 16px - Body
+      lg: '1.125rem',     // 18px - H3
+      xl: '1.25rem',      // 20px - H3
+      '2xl': '1.5rem',    // 24px - H2
+      '3xl': '1.875rem',  // 30px - H1
+      '4xl': '2.25rem',   // 36px - H1
+      '5xl': '3rem',      // 48px - Display
+      '7xl': '4.5rem',    // 72px - Display
     },
     fontWeight: {
       normal: 400,
@@ -82,26 +74,34 @@ export const theme = {
       bold: 700,
     },
     lineHeight: {
-      tight: 1.25,
+      tight: 1.1,
       normal: 1.5,
       relaxed: 1.75,
+    },
+    letterSpacing: {
+      tight: '-0.02em',
+      normal: '0',
+      wide: '0.05em',
+      wider: '0.1em',
+      widest: '0.2em',
     },
   },
 
   borderRadius: {
     none: '0',
-    sm: '4px',
-    md: '6px',
+    sm: '2px',
+    md: '4px',
     lg: '8px',
     xl: '12px',
     full: '9999px',
   },
 
   shadows: {
-    sm: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
-    md: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-    lg: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
-    xl: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+    sm: '0 1px 2px 0 rgba(0, 0, 0, 0.3)',
+    md: '0 4px 6px -1px rgba(0, 0, 0, 0.4)',
+    lg: '0 10px 15px -3px rgba(0, 0, 0, 0.5)',
+    xl: '0 20px 25px -5px rgba(0, 0, 0, 0.6)',
+    glow: '0 0 8px rgba(29, 230, 118, 0.3)',
   },
 
   transitions: {

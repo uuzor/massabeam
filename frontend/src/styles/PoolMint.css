@@ -1,0 +1,362 @@
+/* Pool Mint / Create Pool Form Styles */
+
+.pool-mint-container {
+  min-height: 100vh;
+  padding: 96px 24px 48px;
+  background: linear-gradient(135deg, hsl(12, 8%, 8%) 0%, hsl(12, 8%, 12%) 100%);
+}
+
+.pool-mint-wrapper {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.pool-mint-header {
+  margin-bottom: 48px;
+  text-align: center;
+}
+
+.pool-mint-header h1 {
+  font-size: 32px;
+  font-weight: 700;
+  color: hsl(0, 0%, 98%);
+  margin-bottom: 8px;
+  letter-spacing: -0.02em;
+}
+
+.pool-mint-header p {
+  font-size: 16px;
+  color: hsl(0, 0%, 71%);
+  line-height: 1.6;
+}
+
+.pool-mint-form {
+  background: hsl(12, 8%, 12%);
+  border: 1px solid hsl(12, 8%, 24%);
+  border-radius: 12px;
+  padding: 32px;
+  margin-bottom: 32px;
+}
+
+/* Form Sections */
+.form-section {
+  margin-bottom: 32px;
+}
+
+.form-section:last-of-type {
+  margin-bottom: 24px;
+}
+
+.form-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: hsl(0, 0%, 71%);
+  margin-bottom: 12px;
+}
+
+/* Token Selection */
+.token-input-wrapper {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.token-selector-container {
+  position: relative;
+}
+
+.token-selector {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  background: hsl(12, 8%, 16%);
+  border: 1px solid hsl(12, 8%, 24%);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+  color: hsl(0, 0%, 98%);
+  font-weight: 500;
+}
+
+.token-selector:hover {
+  border-color: hsl(142, 76%, 48%);
+  background: rgba(29, 230, 118, 0.05);
+}
+
+.token-selector:focus {
+  outline: none;
+  border-color: hsl(142, 76%, 48%);
+  box-shadow: 0 0 0 2px rgba(29, 230, 118, 0.1);
+}
+
+.token-symbol {
+  font-size: 14px;
+  font-weight: 600;
+  color: hsl(142, 76%, 48%);
+}
+
+.token-placeholder {
+  font-size: 14px;
+  color: hsl(0, 0%, 45%);
+}
+
+/* Token Dropdown */
+.token-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 8px;
+  background: hsl(12, 8%, 16%);
+  border: 1px solid hsl(12, 8%, 24%);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  max-height: 400px;
+  display: flex;
+  flex-direction: column;
+}
+
+.dropdown-search {
+  padding: 12px;
+  border-bottom: 1px solid hsl(12, 8%, 24%);
+}
+
+.dropdown-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: hsl(12, 8%, 12%);
+  border: 1px solid hsl(12, 8%, 24%);
+  border-radius: 6px;
+  color: hsl(0, 0%, 98%);
+  font-family: inherit;
+  font-size: 14px;
+  transition: border-color 0.2s ease;
+}
+
+.dropdown-input:focus {
+  outline: none;
+  border-color: hsl(142, 76%, 48%);
+}
+
+.dropdown-input::placeholder {
+  color: hsl(0, 0%, 45%);
+}
+
+.dropdown-list {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.dropdown-item {
+  width: 100%;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid hsl(12, 8%, 24%);
+  color: hsl(0, 0%, 98%);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.dropdown-item:hover {
+  background: hsl(12, 8%, 20%);
+}
+
+.dropdown-item.selected {
+  background: rgba(29, 230, 118, 0.1);
+  border-color: hsl(142, 76%, 48%);
+}
+
+.dropdown-item.selected::after {
+  content: '✓';
+  color: hsl(142, 76%, 48%);
+  font-weight: 700;
+}
+
+.token-name {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.token-sym {
+  font-weight: 600;
+  color: hsl(142, 76%, 48%);
+  font-size: 13px;
+}
+
+.token-addr {
+  font-size: 12px;
+  color: hsl(0, 0%, 45%);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Token Switch Button */
+.token-switch-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: 12px auto;
+  background: hsl(12, 8%, 16%);
+  border: 1px solid hsl(12, 8%, 24%);
+  border-radius: 8px;
+  cursor: pointer;
+  color: hsl(142, 76%, 48%);
+  transition: all 0.2s ease;
+}
+
+.token-switch-btn:hover {
+  background: rgba(29, 230, 118, 0.1);
+  border-color: hsl(142, 76%, 48%);
+  transform: rotate(180deg);
+}
+
+/* Fee Tiers */
+.fee-tiers {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.fee-tier-btn {
+  padding: 14px 12px;
+  background: hsl(12, 8%, 16%);
+  border: 1px solid hsl(12, 8%, 24%);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  color: hsl(0, 0%, 98%);
+  font-family: inherit;
+}
+
+.fee-tier-btn:hover {
+  border-color: hsl(142, 76%, 48%);
+  background: rgba(29, 230, 118, 0.05);
+}
+
+.fee-tier-btn.active {
+  background: hsl(142, 76%, 48%);
+  border-color: hsl(142, 76%, 48%);
+  color: #000;
+}
+
+.fee-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.fee-apr {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.fee-description {
+  font-size: 12px;
+  color: hsl(0, 0%, 71%);
+  text-align: center;
+  margin: 0;
+}
+
+
+/* Form Actions */
+.form-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 32px;
+}
+
+.btn {
+  padding: 14px 24px;
+  border-radius: 6px;
+  border: none;
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.btn-primary {
+  background: hsl(142, 76%, 48%);
+  color: #000;
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  filter: brightness(1.1);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: transparent;
+  border: 1px solid hsl(12, 8%, 24%);
+  color: hsl(0, 0%, 98%);
+}
+
+.btn-secondary:hover {
+  border-color: hsl(142, 76%, 48%);
+  background: rgba(29, 230, 118, 0.05);
+}
+
+
+/* Responsive */
+@media (max-width: 768px) {
+  .pool-mint-container {
+    padding: 80px 16px 32px;
+  }
+
+  .pool-mint-form {
+    padding: 24px;
+  }
+
+  .pool-mint-header h1 {
+    font-size: 24px;
+  }
+
+  .fee-tiers {
+    grid-template-columns: 1fr;
+  }
+
+  .form-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .dropdown-list {
+    max-height: 250px;
+  }
+}

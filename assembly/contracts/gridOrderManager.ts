@@ -14,9 +14,10 @@ import {
   Storage,
   call,
   Coins,
-  sendMessage,
+  asyncCall,
+  Slot,
 } from '@massalabs/massa-as-sdk';
-import { u256, i128 } from 'as-bignum/assembly';
+import { u256, i128, u128 } from 'as-bignum/assembly';
 import { ReentrancyGuard } from '../utils/reentrancyGuard';
 import { setOwner } from '../utils/ownership';
 import { SafeMathU256 } from '../libraries/safeMath';
@@ -29,6 +30,7 @@ export const FACTORY_ADDRESS_KEY = stringToBytes('FACTORY_ADDRESS');
 export const ACTIVE_GRIDS_KEY = stringToBytes('ACTIVE_GRIDS');
 export const ACTIVE_GRIDS_COUNT_KEY = stringToBytes('ACTIVE_GRIDS_COUNT');
 export const NATIVE_MAS_ADDRESS = 'NATIVE_MAS';
+export const BOT_COUNTER = 'GRID_BOT_COUNTER';
 
 // Execution configuration
 const CHECK_INTERVAL_PERIODS: u64 = 3; // Check every 3 periods (~48 seconds)
@@ -351,7 +353,7 @@ export function getActiveGridsCount(_: StaticArray<u8>): StaticArray<u8> {
  */
 export function getFactoryAddress(_: StaticArray<u8>): StaticArray<u8> {
   return new Args()
-    .addBytes(Storage.get(FACTORY_ADDRESS_KEY))
+    .add(Storage.get(FACTORY_ADDRESS_KEY))
     .serialize();
 }
 
@@ -360,6 +362,14 @@ export function getFactoryAddress(_: StaticArray<u8>): StaticArray<u8> {
  */
 export function getGridCount(_: StaticArray<u8>): StaticArray<u8> {
   return Storage.get(GRID_ID_COUNTER);
+}
+
+/**
+ * Get bot execution count
+ */
+export function getBotExecutionCount(_: StaticArray<u8>): StaticArray<u8> {
+  const count = _getBotExecutionCount();
+  return new Args().add(count).serialize();
 }
 
 /**
@@ -391,7 +401,7 @@ export function getActiveGrids(_: StaticArray<u8>): StaticArray<u8> {
 export function getUserGrids(binaryArgs: StaticArray<u8>): StaticArray<u8> {
   const args = new Args(binaryArgs);
   const owner = args.nextString().expect('owner missing');
-  const limit = args.nextU64().unwrap_or(100);
+  const limit: u64 = args.nextU64().unwrapOrDefault();
 
   const totalGrids = bytesToU64(Storage.get(GRID_ID_COUNTER));
   const result = new Args();
@@ -408,7 +418,7 @@ export function getUserGrids(binaryArgs: StaticArray<u8>): StaticArray<u8> {
         if (matchCount == 0) {
           result.add(matchCount + 1);
         }
-        result.addBytes(grid.serialize());
+        result.add(grid.serialize());
         matchCount++;
       }
     }
@@ -442,7 +452,7 @@ export function getAllGridLevels(binaryArgs: StaticArray<u8>): StaticArray<u8> {
     const levelKey = _getGridLevelKey(gridId, i);
     if (Storage.has(levelKey)) {
       const level = GridLevel.deserialize(Storage.get(levelKey));
-      result.addBytes(level.serialize());
+      result.add(level.serialize());
     }
   }
 
@@ -460,7 +470,7 @@ export function getGridsByTokenPair(binaryArgs: StaticArray<u8>): StaticArray<u8
   const args = new Args(binaryArgs);
   const tokenIn = args.nextString().expect('tokenIn missing');
   const tokenOut = args.nextString().expect('tokenOut missing');
-  const limit = args.nextU64().unwrap_or(50);
+  const limit = args.nextU64().unwrapOrDefault();
 
   const totalGrids = bytesToU64(Storage.get(GRID_ID_COUNTER));
   const result = new Args();
@@ -477,7 +487,7 @@ export function getGridsByTokenPair(binaryArgs: StaticArray<u8>): StaticArray<u8
         if (matchCount == 0) {
           result.add(matchCount + 1);
         }
-        result.addBytes(grid.serialize());
+        result.add(grid.serialize());
         matchCount++;
       }
     }
@@ -732,11 +742,34 @@ function _getGridLevelKey(gridId: u256, levelIndex: u64): StaticArray<u8> {
 }
 
 /**
+ * Internal: Get bot execution count
+ */
+function _getBotExecutionCount(): u64 {
+  if (Storage.has(stringToBytes(BOT_COUNTER))) {
+    const stored = Storage.get(stringToBytes(BOT_COUNTER));
+    return bytesToU64(stored);
+  }
+  return 0;
+}
+
+/**
+ * Internal: Increment bot execution count
+ */
+function _incrementBotExecutionCount(): void {
+  const currentCount = _getBotExecutionCount();
+  const newCount = currentCount + 1;
+  Storage.set(stringToBytes(BOT_COUNTER), u64ToBytes(newCount));
+  generateEvent(`GridBot:Count:${newCount}`);
+}
+
+/**
  * Internal: Schedule next check
  */
 function _scheduleNextCheck(periodDelay: u64): void {
   const currentPeriod = Context.currentPeriod();
   const currentThread = Context.currentThread();
+
+  _incrementBotExecutionCount();
 
   let nextPeriod = currentPeriod + periodDelay;
   let nextThread = currentThread + 1;
@@ -747,16 +780,14 @@ function _scheduleNextCheck(periodDelay: u64): void {
     nextThread = 0;
   }
 
-  sendMessage(
+  // Schedule async call for next slot
+  asyncCall(
     Context.callee(), // This contract
     'checkAndExecuteGridOrders', // Function to call
-    nextPeriod, // Validity start period
-    u8(nextThread), // Validity start thread
-    nextPeriod + 10, // Validity end period (10 period window)
-    u8(nextThread), // Validity end thread
-    EXECUTION_GAS_BUDGET, // Max gas
-    0, // Raw fee
-    0, // No coins needed
+    new Slot(nextPeriod, nextThread), // Validity start slot
+    new Slot(nextPeriod + 10, nextThread), // Validity end slot (10 period window)
+    EXECUTION_GAS_BUDGET, // Max gas budget
+    0, // Coins (no coins needed)
     new Args().serialize(), // Function params
   );
 

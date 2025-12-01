@@ -14,12 +14,16 @@ import {
   Storage,
   call,
   Coins,
-  sendMessage,
+  asyncCall,
+  Slot,
 } from '@massalabs/massa-as-sdk';
 import { u256, i128 } from 'as-bignum/assembly';
 import { ReentrancyGuard } from '../utils/reentrancyGuard';
 import { setOwner } from '../utils/ownership';
 import { SafeMathU256 } from '../libraries/safeMath';
+import { IFactory } from '../interfaces/IFactory';
+import { IPool } from '../interfaces/Ipool';
+import { getSqrtPriceAtTick, getTickAtSqrtPrice } from '../libraries/swapMath';
 
 // Storage keys
 export const ORDER_ID_COUNTER = stringToBytes('RECURRING_ORDER_ID_COUNTER');
@@ -28,10 +32,14 @@ export const FACTORY_ADDRESS_KEY = stringToBytes('FACTORY_ADDRESS');
 export const ACTIVE_ORDERS_KEY = stringToBytes('ACTIVE_ORDERS');
 export const ACTIVE_ORDERS_COUNT_KEY = stringToBytes('ACTIVE_ORDERS_COUNT');
 export const NATIVE_MAS_ADDRESS = 'NATIVE_MAS';
+export const BOT_COUNTER = 'RECURRING_BOT_COUNTER'; // Bot execution counter with debug events
+export const BOT_ENABLED_KEY = 'RECURRING_BOT_ENABLED';
 
 // Execution configuration
 const DEFAULT_FEE: u64 = 3000; // Default 0.3% fee tier for pools
 const EXECUTION_GAS_BUDGET: u64 = 2_000_000_000; // 2B gas for execution
+const CHECK_INTERVAL_PERIODS: u64 = 5; // Check every 5 periods (~80 seconds)
+const MAX_ORDERS_PER_CHECK: i32 = 10; // Max orders to check per async call
 
 /**
  * Recurring Order structure
@@ -325,7 +333,7 @@ export function getActiveOrdersCount(_: StaticArray<u8>): StaticArray<u8> {
  */
 export function getFactoryAddress(_: StaticArray<u8>): StaticArray<u8> {
   return new Args()
-    .addBytes(Storage.get(FACTORY_ADDRESS_KEY))
+    .add(Storage.get(FACTORY_ADDRESS_KEY))
     .serialize();
 }
 
@@ -365,7 +373,7 @@ export function getActiveOrders(_: StaticArray<u8>): StaticArray<u8> {
 export function getUserOrders(binaryArgs: StaticArray<u8>): StaticArray<u8> {
   const args = new Args(binaryArgs);
   const owner = args.nextString().expect('owner missing');
-  const limit = args.nextU64().unwrap_or(100);
+  const limit: u64 = args.nextU64().unwrap();
 
   const totalOrders = bytesToU64(Storage.get(ORDER_ID_COUNTER));
   const result = new Args();
@@ -383,7 +391,7 @@ export function getUserOrders(binaryArgs: StaticArray<u8>): StaticArray<u8> {
         if (matchCount == 0) {
           result.add(matchCount + 1);
         }
-        result.addBytes(order.serialize());
+        result.add(order.serialize());
         matchCount++;
       }
     }
@@ -430,7 +438,7 @@ export function getOrdersByTokenPair(binaryArgs: StaticArray<u8>): StaticArray<u
   const args = new Args(binaryArgs);
   const tokenIn = args.nextString().expect('tokenIn missing');
   const tokenOut = args.nextString().expect('tokenOut missing');
-  const limit = args.nextU64().unwrap_or(50);
+  const limit = args.nextU64().unwrap();
 
   const totalOrders = bytesToU64(Storage.get(ORDER_ID_COUNTER));
   const result = new Args();
@@ -447,7 +455,7 @@ export function getOrdersByTokenPair(binaryArgs: StaticArray<u8>): StaticArray<u
         if (matchCount == 0) {
           result.add(matchCount + 1);
         }
-        result.addBytes(order.serialize());
+        result.add(order.serialize());
         matchCount++;
       }
     }
@@ -490,35 +498,78 @@ function _getOrderKey(orderId: u256): StaticArray<u8> {
 }
 
 /**
- * Internal: Schedule next check
+ * Get current autonomous execution count (internal)
+ * Tracks number of times checkAndExecuteRecurringOrders has been called
+ */
+function _getBotExecutionCount(): u64 {
+  if (Storage.has(stringToBytes(BOT_COUNTER))) {
+    const stored = Storage.get(stringToBytes(BOT_COUNTER));
+    return bytesToU64(stored);
+  }
+  return 0;
+}
+
+
+
+/**
+ * Increment autonomous execution counter by 1
+ * Called after each successful checkAndExecuteRecurringOrders execution
+ */
+function _incrementBotExecutionCount(): void {
+  const currentCount = _getBotExecutionCount();
+  const newCount = currentCount + 1;
+  Storage.set(stringToBytes(BOT_COUNTER), u64ToBytes(newCount));
+  generateEvent(`RecurringBotExecution:Count:${newCount}`);
+}
+
+/**
+ * Set bot execution count to a specific value
+ * Used for testing or manual adjustment
+ */
+function _setBotExecutionCount(countValue: u64): void {
+  Storage.set(stringToBytes(BOT_COUNTER), u64ToBytes(countValue));
+  generateEvent(`RecurringBotExecution:CountSet:${countValue}`);
+}
+
+/**
+ * Reset bot execution counter to 0
+ * Used for testing or when restarting the counter
+ */
+function _resetBotExecutionCount(): void {
+  Storage.set(stringToBytes(BOT_COUNTER), u64ToBytes(0));
+  generateEvent(`RecurringBotExecution:CountReset`);
+}
+
+/**
+ * Internal: Schedule next check using asyncCall with Slot-based scheduling
  */
 function _scheduleNextCheck(periodDelay: u64): void {
   const currentPeriod = Context.currentPeriod();
   const currentThread = Context.currentThread();
+  _incrementBotExecutionCount();
 
-  let nextPeriod = currentPeriod + periodDelay;
+  // Calculate next slot
+  let nextPeriod = currentPeriod;
   let nextThread = currentThread + 1;
 
   // Wrap thread if needed
   if (nextThread >= 32) {
-    nextPeriod = nextPeriod + 1;
+    nextPeriod = currentPeriod + periodDelay;
     nextThread = 0;
   }
 
-  sendMessage(
+  // Schedule async call for next slot
+  asyncCall(
     Context.callee(), // This contract
     'checkAndExecuteRecurringOrders', // Function to call
-    nextPeriod, // Validity start period
-    u8(nextThread), // Validity start thread
-    nextPeriod + 10, // Validity end period (10 period window)
-    u8(nextThread), // Validity end thread
-    EXECUTION_GAS_BUDGET, // Max gas
-    0, // Raw fee
-    0, // No coins needed
+    new Slot(nextPeriod, nextThread), // Validity start slot
+    new Slot(nextPeriod + 10, nextThread), // Validity end slot (10 period window)
+    EXECUTION_GAS_BUDGET, // Max gas budget
+    0, // Coins (no coins needed)
     new Args().serialize(), // Function params
   );
 
-  generateEvent(`RecurringAutoScheduled:Period:${nextPeriod}:Thread:${nextThread}`);
+  generateEvent(`RecurringAutoScheduled:Period:${nextPeriod}:Thread:${nextThread}:Current:${Context.currentPeriod()}:Count:${_getBotExecutionCount()}`);
 }
 
 /**
@@ -630,6 +681,15 @@ function _removeFromActiveOrders(orderId: u256): void {
       break;
     }
   }
+}
+
+/**
+ * Get bot execution count (public read function)
+ * Returns the number of times the autonomous bot has executed
+ */
+export function getBotExecutionCount(_: StaticArray<u8>): StaticArray<u8> {
+  const count = _getBotExecutionCount();
+  return new Args().add(count).serialize();
 }
 
 /**

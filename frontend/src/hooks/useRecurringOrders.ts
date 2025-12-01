@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Args } from '@massalabs/massa-web3';
+import { Args, SmartContract, IProvider } from '@massalabs/massa-web3';
 
 export interface RecurringOrder {
   orderId: string;
@@ -29,38 +29,51 @@ export interface OrderProgress {
 /**
  * Get a specific recurring order by ID
  */
-export function useRecurringOrder(contractAddress: string | null, orderId: string | null) {
+export function useRecurringOrder(
+  contractAddress: string | null,
+  orderId: string | null,
+  provider: IProvider | null
+) {
   const [order, setOrder] = useState<RecurringOrder | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
-    if (!contractAddress || !orderId) return;
+    if (!contractAddress || !orderId || !provider) return;
 
-    setLoading(true);
-    setError(null);
+    const fetchOrder = async () => {
+      setLoading(true);
+      setError(null);
 
-    // TODO: Implement actual contract call
-    // const contract = new SmartContract(provider, contractAddress);
-    // const result = await contract.read('getRecurringOrder', new Args().addU256(BigInt(orderId)));
-    // const order = RecurringOrder.deserialize(result.value);
+      try {
+        const contract = new SmartContract(provider, contractAddress);
+        const result = await contract.read('getRecurringOrder', new Args().addU256(BigInt(orderId)));
 
-    setTimeout(() => {
-      setOrder({
-        orderId: orderId,
-        owner: 'AS1...',
-        tokenIn: 'AS2...',
-        tokenOut: 'AS3...',
-        amountPerExecution: '1000000000',
-        intervalPeriods: 100,
-        totalExecutions: 10,
-        executedCount: 0,
-        lastExecutionPeriod: 0,
-        active: true,
-      });
-      setLoading(false);
-    }, 500);
-  }, [contractAddress, orderId]);
+        const args = new Args(result.value);
+        const fetchedOrder: RecurringOrder = {
+          orderId: args.nextU256().toString(),
+          owner: args.nextString(),
+          tokenIn: args.nextString(),
+          tokenOut: args.nextString(),
+          amountPerExecution: args.nextU256().toString(),
+          intervalPeriods: Number(args.nextU64()),
+          totalExecutions: Number(args.nextU64()),
+          executedCount: Number(args.nextU64()),
+          lastExecutionPeriod: Number(args.nextU64()),
+          active: args.nextBool(),
+        };
+
+        setOrder(fetchedOrder);
+      } catch (err) {
+        console.error('Error fetching recurring order:', err);
+        setError(err instanceof Error ? err : new Error('Failed to fetch order'));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchOrder();
+  }, [contractAddress, orderId, provider]);
 
   return { order, loading, error };
 }

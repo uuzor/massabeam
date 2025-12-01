@@ -5,12 +5,11 @@
     "main": "index.js",
     "scripts": {
         "test": "asp --summary",
-        "test:integration": "tsx src/integration-test.ts",
         "build": "massa-as-compile",
         "clean": "rimraf build",
-        "deploy": "npm run build && tsx src/deploy.ts",
-        "deploy:dex": "npm run build && tsx src/deployDEX.ts",
-        "deploy:wmas": "tsx src/deployWMAS.ts",
+        "deploy": "tsx src/deploy.ts",
+        "recurring": "tsx src/recurring.ts",
+        "deploy:dex": "tsx src/deployDEX.ts",
         "hello": "tsx src/hello.ts",
         "prettier": "prettier '**/src/**/*.ts' --check && as-prettier --check assembly",
         "prettier:fix": "prettier '**/src/**/*.ts' --write && as-prettier --write assembly",
@@ -57,6 +56,5 @@
     "prettier": "@massalabs/prettier-config-as",
     "engines": {
         "node": ">=16"
-    },
-    "packageManager": "pnpm@9.15.4+sha512.b2dc20e2fc72b3e18848459b37359a32064663e5627a51e4c74b2c29dd8e8e0491483c3abb40789cfd578bf362fb6ba8261b05f0387d76792ed6e23ea3b1b6a0"
+    }
 }

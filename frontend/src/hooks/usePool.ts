@@ -1,274 +1,551 @@
 /**
- * React hooks for Pool contract read functions
+ * Pool Contract Hook
+ * Manages individual pool interactions (liquidity, swaps, position management)
  */
 
-import { useState, useEffect } from 'react';
-import { Args } from '@massalabs/massa-web3';
+import { useState, useCallback } from 'react';
+import { Args, bytesToF64, Mas, OperationStatus } from '@massalabs/massa-web3';
+import {  readContract, callContract } from './useFactory';
 
-interface PoolState {
-  sqrtPriceX96: string;
-  tick: number;
-  liquidity: string;
-}
+
+
 
 interface PoolMetadata {
   token0: string;
   token1: string;
-  fee: number;
-  tickSpacing: number;
+  fee: bigint;
+  tickSpacing: bigint;
   factory: string;
-  maxLiquidityPerTick: string;
+  maxLiqPerTick: bigint | number;
 }
 
-interface TickInfo {
-  liquidityGross: string;
-  liquidityNet: string;
-  feeGrowthOutside0: string;
-  feeGrowthOutside1: string;
-  tickCumulativeOutside: bigint;
-  secondsPerLiquidityOutside: string;
-  secondsOutside: number;
-  initialized: boolean;
+interface PoolState {
+  sqrtPriceX96: bigint;
+  tick: number | bigint;
+  liquidity: bigint;
+  feeGrowth0: bigint;
+  feeGrowth1: bigint;
 }
 
 interface Position {
-  liquidity: string;
-  feeGrowthInside0LastX128: string;
-  feeGrowthInside1LastX128: string;
-  tokensOwed0: string;
-  tokensOwed1: string;
+  owner: string;
+  tickLower: number;
+  tickUpper: number;
+  liquidity: bigint;
+  tokensOwed0: bigint;
+  tokensOwed1: bigint;
 }
 
-/**
- * Get current pool state
- */
-export function usePoolState(poolAddress: string | null) {
-  const [state, setState] = useState<PoolState | null>(null);
+interface SwapParams {
+  recipient: string;
+  zeroForOne: boolean;
+  amountSpecified: bigint;
+  sqrtPriceLimitX96: bigint;
+}
+
+interface MintParams {
+  recipient: string;
+  tickLower: number;
+  tickUpper: number;
+  liquidityDelta: bigint;
+}
+
+interface BurnParams {
+  tickLower: number;
+  tickUpper: number;
+  liquidityDelta: bigint;
+}
+
+interface CollectParams {
+  recipient: string;
+  tickLower: number;
+  tickUpper: number;
+  amount0Requested: bigint;
+  amount1Requested: bigint;
+}
+
+export function usePool(poolAddress: string, isConnected: boolean, provider: any, userAddress: string) {
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!poolAddress) return;
+  /**
+   * Get the complete pool metadata (immutable values)
+   * @returns Pool metadata including tokens, fee, tick spacing, factory
+   */
+  const getPoolMetadata = useCallback(async (): Promise<PoolMetadata | null> => {
+    try {
+      const result = await readContract(provider, poolAddress, 'getPoolMetadata', new Args());
 
-    setLoading(true);
-    setError(null);
+      if (result && result.length > 0) {
+        const args = new Args(result);
+        return {
+          token0: args.nextString(),
+          token1: args.nextString(),
+          fee: args.nextU64(),
+          tickSpacing: args.nextU64(),
+          factory: args.nextString(),
+          maxLiqPerTick: Number(args.nextString()),
+        };
+      }
 
-    // TODO: Implement actual contract call
-    // This is a placeholder - you'll need to integrate with massa-web3
-    // const contract = new SmartContract(provider, poolAddress);
-    // const result = await contract.read('getState', new Args());
-    // const args = new Args(result.value);
-    // const sqrtPriceX96 = args.nextU256().toString();
-    // const tick = args.nextI32();
-    // const liquidity = args.nextU128().toString();
-
-    setTimeout(() => {
-      setState({
-        sqrtPriceX96: '79228162514264337593543950336',
-        tick: 0,
-        liquidity: '1000000000000000000',
-      });
-      setLoading(false);
-    }, 500);
+      return null;
+    } catch (err) {
+      console.error('Error getting pool metadata:', err);
+      return null;
+    }
   }, [poolAddress]);
 
-  return { state, loading, error };
-}
+  /**
+   * Get the current pool state (price, tick, liquidity, fee growth)
+   * @returns Pool state with current conditions
+   */
+  const getPoolState = useCallback(async (): Promise<PoolState | null> => {
+    try {
+      const result = await readContract(provider, poolAddress, 'getState', new Args());
 
-/**
- * Get pool metadata (immutable values)
- */
-export function usePoolMetadata(poolAddress: string | null) {
-  const [metadata, setMetadata] = useState<PoolMetadata | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+      if (result && result.length > 0) {
+        const args = new Args(result);
+        return {
+          sqrtPriceX96: args.nextU256(),
+          tick: args.nextI32(),
+          liquidity: args.nextU128(),
+          feeGrowth0: args.nextU256(),
+          feeGrowth1: args.nextU256(),
+        };
+      }
 
-  useEffect(() => {
-    if (!poolAddress) return;
-
-    setLoading(true);
-    setError(null);
-
-    // TODO: Implement actual contract call
-    // const result = await contract.read('getPoolMetadata', new Args());
-
-    setTimeout(() => {
-      setMetadata({
-        token0: 'AS1...',
-        token1: 'AS2...',
-        fee: 3000,
-        tickSpacing: 60,
-        factory: 'AS3...',
-        maxLiquidityPerTick: '1000000000000000000',
-      });
-      setLoading(false);
-    }, 500);
+      return null;
+    } catch (err) {
+      console.error('Error getting pool state:', err);
+      return null;
+    }
   }, [poolAddress]);
 
-  return { metadata, loading, error };
-}
+  /**
+   * Get current sqrt price (X96 format)
+   * @returns sqrt price as bigint
+   */
+  const getSqrtPriceX96 = useCallback(async (): Promise<bigint| number | null> => {
+    try {
+      const result = await readContract(provider, poolAddress, 'getSqrtPriceX96', new Args());
 
-/**
- * Get current price
- */
-export function usePoolPrice(poolAddress: string | null) {
-  const [price, setPrice] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+      if (result && result.length > 0) {
+        return bytesToF64(result);
+      }
 
-  useEffect(() => {
-    if (!poolAddress) return;
-
-    setLoading(true);
-    setError(null);
-
-    // TODO: Implement actual contract call
-    // const result = await contract.read('getPrice', new Args());
-    // const sqrtPriceX96 = bytesToU256(result.value);
-    // Calculate actual price: (sqrtPriceX96 / 2^96) ^ 2
-
-    setTimeout(() => {
-      setPrice('1.0');
-      setLoading(false);
-    }, 500);
+      return null;
+    } catch (err) {
+      console.error('Error getting sqrt price:', err);
+      return null;
+    }
   }, [poolAddress]);
 
-  return { price, loading, error };
-}
+  /**
+   * Get current tick
+   * @returns Current tick as number
+   */
+  const getTick = useCallback(async (): Promise<number | bigint | null> => {
+    try {
+      const result = await readContract(provider, poolAddress, 'getTick', new Args());
 
-/**
- * Get tick info for a specific tick
- */
-export function useTickInfo(poolAddress: string | null, tick: number | null) {
-  const [tickInfo, setTickInfo] = useState<TickInfo | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+      if (result && result.length > 0) {
+        const args = new Args(result);
+        return args.nextI32();
+      }
 
-  useEffect(() => {
-    if (!poolAddress || tick === null) return;
-
-    setLoading(true);
-    setError(null);
-
-    // TODO: Implement actual contract call
-    // const result = await contract.read('getTickInfo', new Args().addI32(tick));
-
-    setTimeout(() => {
-      setTickInfo({
-        liquidityGross: '0',
-        liquidityNet: '0',
-        feeGrowthOutside0: '0',
-        feeGrowthOutside1: '0',
-        tickCumulativeOutside: 0n,
-        secondsPerLiquidityOutside: '0',
-        secondsOutside: 0,
-        initialized: false,
-      });
-      setLoading(false);
-    }, 500);
-  }, [poolAddress, tick]);
-
-  return { tickInfo, loading, error };
-}
-
-/**
- * Get position for owner and tick range
- */
-export function usePosition(
-  poolAddress: string | null,
-  owner: string | null,
-  tickLower: number | null,
-  tickUpper: number | null
-) {
-  const [position, setPosition] = useState<Position | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-
-  useEffect(() => {
-    if (!poolAddress || !owner || tickLower === null || tickUpper === null) return;
-
-    setLoading(true);
-    setError(null);
-
-    // TODO: Implement actual contract call
-    // const result = await contract.read(
-    //   'getPosition',
-    //   new Args().addString(owner).addI32(tickLower).addI32(tickUpper)
-    // );
-
-    setTimeout(() => {
-      setPosition({
-        liquidity: '0',
-        feeGrowthInside0LastX128: '0',
-        feeGrowthInside1LastX128: '0',
-        tokensOwed0: '0',
-        tokensOwed1: '0',
-      });
-      setLoading(false);
-    }, 500);
-  }, [poolAddress, owner, tickLower, tickUpper]);
-
-  return { position, loading, error };
-}
-
-/**
- * Get fee growth globals
- */
-export function usePoolFeeGrowth(poolAddress: string | null) {
-  const [feeGrowth, setFeeGrowth] = useState<{ token0: string; token1: string } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-
-  useEffect(() => {
-    if (!poolAddress) return;
-
-    setLoading(true);
-    setError(null);
-
-    // TODO: Implement actual contract calls
-    // const result0 = await contract.read('getFeeGrowthGlobal0', new Args());
-    // const result1 = await contract.read('getFeeGrowthGlobal1', new Args());
-
-    setTimeout(() => {
-      setFeeGrowth({
-        token0: '0',
-        token1: '0',
-      });
-      setLoading(false);
-    }, 500);
+      return null;
+    } catch (err) {
+      console.error('Error getting tick:', err);
+      return null;
+    }
   }, [poolAddress]);
 
-  return { feeGrowth, loading, error };
-}
+  /**
+   * Get current liquidity
+   * @returns Current liquidity as bigint
+   */
+  const getLiquidity = useCallback(async (): Promise<bigint| number | null> => {
+    try {
+      const result = await readContract(provider, poolAddress, 'getLiquidity', new Args());
 
-/**
- * Get protocol fees
- */
-export function useProtocolFees(poolAddress: string | null) {
-  const [protocolFees, setProtocolFees] = useState<{ token0: string; token1: string } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+      if (result && result.length > 0) {
+        return bytesToF64(result);
+      }
 
-  useEffect(() => {
-    if (!poolAddress) return;
-
-    setLoading(true);
-    setError(null);
-
-    // TODO: Implement actual contract call
-    // const result = await contract.read('getProtocolFees', new Args());
-    // const args = new Args(result.value);
-    // const fee0 = args.nextU128().toString();
-    // const fee1 = args.nextU128().toString();
-
-    setTimeout(() => {
-      setProtocolFees({
-        token0: '0',
-        token1: '0',
-      });
-      setLoading(false);
-    }, 500);
+      return null;
+    } catch (err) {
+      console.error('Error getting liquidity:', err);
+      return null;
+    }
   }, [poolAddress]);
 
-  return { protocolFees, loading, error };
+  /**
+   * Get pool tokens (token0 and token1)
+   * @returns Tuple of token addresses
+   */
+  const getTokens = useCallback(async (): Promise<[string, string] | null> => {
+    try {
+      const result = await readContract(provider, poolAddress, 'getTokens', new Args());
+
+      if (result && result.length > 0) {
+        const args = new Args(result);
+        return [args.nextString(), args.nextString()];
+      }
+
+      return null;
+    } catch (err) {
+      console.error('Error getting tokens:', err);
+      return null;
+    }
+  }, [poolAddress]);
+
+  /**
+   * Get pool fee
+   * @returns Fee as bigint
+   */
+  const getFee = useCallback(async (): Promise<bigint| number | null> => {
+    try {
+      const result = await readContract(provider, poolAddress, 'getFee', new Args());
+
+      if (result && result.length > 0) {
+        return bytesToF64(result);
+      }
+
+      return null;
+    } catch (err) {
+      console.error('Error getting fee:', err);
+      return null;
+    }
+  }, [poolAddress]);
+
+  /**
+   * Get tick spacing
+   * @returns Tick spacing as bigint
+   */
+  const getTickSpacing = useCallback(async (): Promise<bigint | number | null> => {
+    try {
+      const result = await readContract(provider, poolAddress, 'getTickSpacing', new Args());
+
+      if (result && result.length > 0) {
+        return bytesToF64(result);
+      }
+
+      return null;
+    } catch (err) {
+      console.error('Error getting tick spacing:', err);
+      return null;
+    }
+  }, [poolAddress]);
+
+  /**
+   * Get position details
+   * @param owner - Position owner address
+   * @param tickLower - Lower tick boundary
+   * @param tickUpper - Upper tick boundary
+   * @returns Position data
+   */
+  const getPosition = useCallback(
+    async (owner: string, tickLower: number, tickUpper: number): Promise<Position | null> => {
+      try {
+        const args = new Args()
+          .addString(owner)
+          .addI32(BigInt(tickLower))
+          .addI32(BigInt(tickUpper));
+
+        const result = await readContract(provider, poolAddress, 'getPosition', args);
+
+        if (result && result.length > 0) {
+          const posArgs = new Args(result);
+          return {
+            owner,
+            tickLower,
+            tickUpper,
+            liquidity: posArgs.nextU128(),
+            tokensOwed0: posArgs.nextU128(),
+            tokensOwed1: posArgs.nextU128(),
+          };
+        }
+
+        return null;
+      } catch (err) {
+        console.error('Error getting position:', err);
+        return null;
+      }
+    },
+    [poolAddress]
+  );
+
+  /**
+   * Get maximum liquidity per tick
+   * @returns Max liquidity as bigint
+   */
+  const getMaxLiquidityPerTick = useCallback(async (): Promise<bigint | number | null> => {
+    try {
+      const result = await readContract(provider, poolAddress, 'getMaxLiquidityPerTick', new Args());
+
+      if (result && result.length > 0) {
+        return bytesToF64(result);
+      }
+
+      return null;
+    } catch (err) {
+      console.error('Error getting max liquidity per tick:', err);
+      return null;
+    }
+  }, [poolAddress]);
+
+  /**
+   * Get fee growth global for token0
+   * @returns Fee growth as bigint
+   */
+  const getFeeGrowthGlobal0 = useCallback(async (): Promise<bigint | number | null> => {
+    try {
+      const result = await readContract(provider, poolAddress, 'getFeeGrowthGlobal0', new Args());
+
+      if (result && result.length > 0) {
+        return bytesToF64(result);
+      }
+
+      return null;
+    } catch (err) {
+      console.error('Error getting fee growth global0:', err);
+      return null;
+    }
+  }, [poolAddress]);
+
+  /**
+   * Get fee growth global for token1
+   * @returns Fee growth as bigint
+   */
+  const getFeeGrowthGlobal1 = useCallback(async (): Promise<bigint |number | null> => {
+    try {
+      const result = await readContract(provider, poolAddress, 'getFeeGrowthGlobal1', new Args());
+
+      if (result && result.length > 0) {
+        return bytesToF64(result);
+      }
+
+      return null;
+    } catch (err) {
+      console.error('Error getting fee growth global1:', err);
+      return null;
+    }
+  }, [poolAddress]);
+
+  /**
+   * Get protocol fees for both tokens
+   * @returns Tuple of [fee0, fee1]
+   */
+  const getProtocolFees = useCallback(async (): Promise<[bigint, bigint] | null> => {
+    try {
+      const result = await readContract(provider, poolAddress, 'getProtocolFees', new Args());
+
+      if (result && result.length > 0) {
+        const args = new Args(result);
+        return [args.nextU128(), args.nextU128()];
+      }
+
+      return null;
+    } catch (err) {
+      console.error('Error getting protocol fees:', err);
+      return null;
+    }
+  }, [poolAddress]);
+
+  /**
+   * Get factory address
+   * @returns Factory contract address
+   */
+  const getFactory = useCallback(async (): Promise<string | null> => {
+    try {
+      const result = await readContract(provider, poolAddress, 'getFactory', new Args());
+
+      if (result && result.length > 0) {
+        const args = new Args(result);
+        return args.nextString();
+      }
+
+      return null;
+    } catch (err) {
+      console.error('Error getting factory:', err);
+      return null;
+    }
+  }, [poolAddress]);
+
+  /**
+   * Mint liquidity to a position
+   * @param params - Mint parameters
+   * @returns Operation ID
+   */
+  const mint = useCallback(
+    async (params: MintParams): Promise<string | null> => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        if (!isConnected || !userAddress) {
+          throw new Error('Wallet not connected. Please connect your wallet first.');
+        }
+
+        const args = new Args()
+          .addString(params.recipient)
+          .addI32(BigInt(params.tickLower))
+          .addI32(BigInt(params.tickUpper))
+          .addU128(params.liquidityDelta);
+
+        const op = await callContract(provider, poolAddress, 'mint', args);
+
+        console.log('Liquidity minted successfully:', op);
+        return op.id;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to mint liquidity';
+        setError(message);
+        console.error('Mint error:', err);
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [isConnected, userAddress, poolAddress]
+  );
+
+  /**
+   * Burn liquidity from a position
+   * @param params - Burn parameters
+   * @returns Operation ID
+   */
+  const burn = useCallback(
+    async (params: BurnParams): Promise<string | null> => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        if (!isConnected || !userAddress) {
+          throw new Error('Wallet not connected. Please connect your wallet first.');
+        }
+
+        const args = new Args()
+          .addI32(BigInt(params.tickLower))
+          .addI32(BigInt(params.tickUpper))
+          .addU128(params.liquidityDelta);
+
+        const op = await callContract(provider, poolAddress, 'burn', args);
+
+        console.log('Liquidity burned successfully:', op);
+        return op.id;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to burn liquidity';
+        setError(message);
+        console.error('Burn error:', err);
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [isConnected, userAddress, poolAddress]
+  );
+
+  /**
+   * Swap tokens
+   * @param params - Swap parameters
+   * @returns Operation ID
+   */
+  const swap = useCallback(
+    async (params: SwapParams): Promise<string | null> => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        if (!isConnected || !userAddress) {
+          throw new Error('Wallet not connected. Please connect your wallet first.');
+        }
+
+        const args = new Args()
+          .addString(params.recipient)
+          .addBool(params.zeroForOne)
+          .addI128(params.amountSpecified)
+          .addU256(params.sqrtPriceLimitX96);
+
+        const op = await callContract(provider, poolAddress, 'swap', args);
+
+        console.log('Swap executed successfully:', op);
+        return op.id;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to execute swap';
+        setError(message);
+        console.error('Swap error:', err);
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [isConnected, userAddress, poolAddress]
+  );
+
+  /**
+   * Collect fees from a position
+   * @param params - Collect parameters
+   * @returns Operation ID
+   */
+  const collect = useCallback(
+    async (params: CollectParams): Promise<string | null> => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        if (!isConnected || !userAddress) {
+          throw new Error('Wallet not connected. Please connect your wallet first.');
+        }
+
+        const args = new Args()
+          .addString(params.recipient)
+          .addI32(BigInt(params.tickLower))
+          .addI32(BigInt(params.tickUpper))
+          .addU128(params.amount0Requested)
+          .addU128(params.amount1Requested);
+
+        const op = await callContract(provider, poolAddress, 'collect', args);
+
+        console.log('Fees collected successfully:', op);
+        return op.id;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to collect fees';
+        setError(message);
+        console.error('Collect error:', err);
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [isConnected, userAddress, poolAddress]
+  );
+
+  return {
+    // Read-only functions
+    getPoolMetadata,
+    getPoolState,
+    getSqrtPriceX96,
+    getTick,
+    getLiquidity,
+    getTokens,
+    getFee,
+    getTickSpacing,
+    getPosition,
+    getMaxLiquidityPerTick,
+    getFeeGrowthGlobal0,
+    getFeeGrowthGlobal1,
+    getProtocolFees,
+    getFactory,
+
+    // State-changing functions
+    mint,
+    burn,
+    swap,
+    collect,
+
+    // State
+    loading,
+    error,
+    isConnected,
+  };
 }
