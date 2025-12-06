@@ -30,6 +30,7 @@ export function useToken(
   const getSymbol = useCallback(async (): Promise<string | null> => {
     try {
       if (!tokenAddress) return null;
+      if (tokenAddress === "NATIVE_MAS") return "MAS";
 
       const result = await readContract(provider, tokenAddress, 'symbol', new Args());
 
@@ -51,12 +52,13 @@ export function useToken(
   const getDecimals = useCallback(async (): Promise<number | null> => {
     try {
       if (!tokenAddress) return null;
+      if (tokenAddress === "NATIVE_MAS") return 9;
 
       const result = await readContract(provider, tokenAddress, 'decimals', new Args());
 
       if (result && result.length > 0) {
         const args = new Args(result);
-        return args.nextU8();
+        return Number(args.nextU8());
       }
 
       return null;
@@ -75,6 +77,10 @@ export function useToken(
     async (account: string): Promise<bigint | null> => {
       try {
         if (!tokenAddress || !account) return null;
+        if (tokenAddress == "NATIVE_MAS") {
+          const balance = await provider.balanceOf(account);
+          return BigInt(balance.toString());
+        }
 
         const args = new Args().addString(account);
         const result = await readContract(provider, tokenAddress, 'balanceOf', args);
@@ -105,6 +111,7 @@ export function useToken(
     async (owner: string, spender: string): Promise<bigint | null> => {
       try {
         if (!tokenAddress || !owner || !spender) return null;
+        if (tokenAddress === "NATIVE_MAS") return BigInt(2)**BigInt(256) - BigInt(1); // Infinite allowance for native MAS
 
         const args = new Args().addString(owner).addString(spender);
         const result = await readContract(provider, tokenAddress, 'allowance', args);
@@ -141,6 +148,10 @@ export function useToken(
 
         if (!tokenAddress || !spender) {
           throw new Error('Token address or spender not provided');
+        }
+        
+        if (tokenAddress === "NATIVE_MAS") {
+          return null;
         }
 
         const args = new Args().addString(spender).addU256(amount);
@@ -180,6 +191,10 @@ export function useToken(
         if (!tokenAddress || !spender) {
           throw new Error('Token address or spender not provided');
         }
+        
+        if (tokenAddress === "NATIVE_MAS") {
+          return null;
+        }
 
         const args = new Args().addString(spender).addU256(addedValue);
 
@@ -218,6 +233,10 @@ export function useToken(
         if (!tokenAddress || !spender) {
           throw new Error('Token address or spender not provided');
         }
+        
+        if (tokenAddress === "NATIVE_MAS") {
+          return null;
+        }
 
         const args = new Args().addString(spender).addU256(subtractedValue);
 
@@ -255,6 +274,10 @@ export function useToken(
 
         if (!tokenAddress || !to) {
           throw new Error('Token address or recipient not provided');
+        }
+
+        if (tokenAddress === "NATIVE_MAS") {
+          return null;
         }
 
         const args = new Args().addString(to).addU256(amount);

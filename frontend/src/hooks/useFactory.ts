@@ -3,48 +3,50 @@
  * Manages pool creation and factory interactions
  */
 
+
 import { useState, useCallback } from 'react';
 import { web3 } from '@hicaru/bearby.js';
 import { Args, bytesToStr, Mas, OperationStatus, PublicAPI } from '@massalabs/massa-web3';
 import { useWallet } from './useWallet';
-import { mask } from 'framer-motion/dist/m';
 
 const API_URL = 'https://buildnet.massa.net/api/v2';
 
-
-
-
 // Generic contract call wrapper
-export async function callContract(provider , contractAddress, functionName, args, coins= Mas.fromString('0.1'),
-maxGas= BigInt(300_000_000)) {
-    if (!provider) {
-      throw new Error("Wallet not connected");
-    }
-
-    console.log(coins, maxGas)
-
-    console.log(provider)
-  
-    try {
-      const operation = await provider.callSC({
-        target: contractAddress,
-        func: functionName,
-        parameter: args,
-        coins,
-         maxGas
-      });
-     
-      const status = await operation.waitSpeculativeExecution();
-      if (status !== OperationStatus.SpeculativeSuccess) {
-        throw new Error(`Transaction failed with status: ${status}`);
-      }
-  
-      return operation;
-    } catch (error) {
-      console.error(`Contract call failed: ${functionName}`, error);
-      throw error;
-    }
+export async function callContract(
+  provider: any,
+  contractAddress: string,
+  functionName: string,
+  args: Args,
+  amount = Mas.fromMas(0n),
+  fee = Mas.fromMas(0n), // 0.1 MAS fee
+  maxGas: bigint = BigInt(300_000_000)
+) {
+  if (!provider) {
+    throw new Error("Wallet not connected");
   }
+
+  try {
+    const coins = Mas.fromMas(amount + fee);
+
+    const operation = await provider.callSC({
+      target: contractAddress,
+      func: functionName,
+      parameter: args,
+      coins,
+      maxGas,
+    });
+
+    const status = await operation.waitSpeculativeExecution();
+    if (status !== OperationStatus.SpeculativeSuccess) {
+      throw new Error(`Transaction failed with status: ${status}`);
+    }
+
+    return operation;
+  } catch (error) {
+    console.error(`Contract call failed: ${functionName}`, error);
+    throw error;
+  }
+}
 
 
 
@@ -99,7 +101,7 @@ export function useFactory(factoryAddress: string, isConnected, provider, userAd
           .addString(tokenB)
           .addU64(BigInt(fee));
 
-        const op = await callContract(provider, factoryAddress, "createPool", args, Mas.fromString('7'),BigInt(1_000_000_000));
+        const op = await callContract(provider, factoryAddress, "createPool", args, Mas.fromMas(0n), Mas.fromMas(100_000_000n), BigInt(1_000_000_000));
 
         console.log('Pool created successfully:', op);
         return op.id;

@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { Args, bytesToF64, Mas, OperationStatus } from '@massalabs/massa-web3';
+import { Args, bytesToF64, bytesToStr, Mas, OperationStatus, U256 } from '@massalabs/massa-web3';
 import {  readContract, callContract } from './useFactory';
 
 
@@ -41,6 +41,7 @@ interface SwapParams {
   zeroForOne: boolean;
   amountSpecified: bigint;
   sqrtPriceLimitX96: bigint;
+  coins?: bigint; // Optional coins to send with the transaction
 }
 
 interface MintParams {
@@ -48,6 +49,7 @@ interface MintParams {
   tickLower: number;
   tickUpper: number;
   liquidityDelta: bigint;
+  coins?: bigint; // Optional coins to send with the transaction
 }
 
 interface BurnParams {
@@ -127,10 +129,13 @@ export function usePool(poolAddress: string, isConnected: boolean, provider: any
    */
   const getSqrtPriceX96 = useCallback(async (): Promise<bigint| number | null> => {
     try {
-      const result = await readContract(provider, poolAddress, 'getSqrtPriceX96', new Args());
+      const result = await readContract(provider, poolAddress, 'getPrice', new Args());
 
-      if (result && result.length > 0) {
-        return bytesToF64(result);
+      if (result) {
+        console.log(result)
+        console.log(U256.fromBytes(result))
+        
+        return BigInt(U256.fromBytes(result).toString());
       }
 
       return null;
@@ -378,7 +383,7 @@ export function usePool(poolAddress: string, isConnected: boolean, provider: any
    * @returns Operation ID
    */
   const mint = useCallback(
-    async (params: MintParams): Promise<string | null> => {
+    async (params: MintParams, coins = Mas.fromMas(0n)): Promise<string | null> => {
       setLoading(true);
       setError(null);
 
@@ -386,14 +391,15 @@ export function usePool(poolAddress: string, isConnected: boolean, provider: any
         if (!isConnected || !userAddress) {
           throw new Error('Wallet not connected. Please connect your wallet first.');
         }
-
+        console.log('Mint params:', params);
+        console.log('Coins:', coins);
         const args = new Args()
           .addString(params.recipient)
           .addI32(BigInt(params.tickLower))
           .addI32(BigInt(params.tickUpper))
           .addU128(params.liquidityDelta);
 
-        const op = await callContract(provider, poolAddress, 'mint', args);
+        const op = await callContract(provider, poolAddress, 'mint', args, coins);
 
         console.log('Liquidity minted successfully:', op);
         return op.id;
@@ -451,7 +457,7 @@ export function usePool(poolAddress: string, isConnected: boolean, provider: any
    * @returns Operation ID
    */
   const swap = useCallback(
-    async (params: SwapParams): Promise<string | null> => {
+    async (params: SwapParams, coins = Mas.fromMas(0n)): Promise<string | null> => {
       setLoading(true);
       setError(null);
 
@@ -466,7 +472,7 @@ export function usePool(poolAddress: string, isConnected: boolean, provider: any
           .addI128(params.amountSpecified)
           .addU256(params.sqrtPriceLimitX96);
 
-        const op = await callContract(provider, poolAddress, 'swap', args);
+        const op = await callContract(provider, poolAddress, 'swap', args, coins);
 
         console.log('Swap executed successfully:', op);
         return op.id;

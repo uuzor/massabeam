@@ -56,7 +56,8 @@ export function useLimitOrderManager(
       minAmountOut: bigint,
       limitPrice: bigint,
       orderType: bigint, // 0 = BUY, 1 = SELL
-      expiry: bigint
+      expiry: bigint,
+      coinsToSend: Mas = Mas.fromUmas(0n) // Optional native MAS to send
     ): Promise<string | null> => {
       if (!provider || !contractAddress || !userAddress) {
         setError('Provider, contract, or user address not available');
@@ -69,6 +70,8 @@ export function useLimitOrderManager(
 
       try {
         const contract = new SmartContract(provider, contractAddress);
+        const fixedFee = Mas.fromUmas(100_000_000n); // 0.1 MAS as fixed fee
+        const totalCoins = Mas.fromUmas(coinsToSend.toUmas() + fixedFee.toUmas());
 
         const tx = await contract.call(
           'createLimitOrder',
@@ -81,7 +84,7 @@ export function useLimitOrderManager(
             .addU256(orderType)
             .addU256(expiry),
           {
-            coins: Mas.fromString('0.1'), // Fee for contract execution
+            coins: totalCoins,
             maxGas: BigInt(300_000_000),
           }
         );
@@ -126,7 +129,7 @@ export function useLimitOrderManager(
           'cancelLimitOrder',
           new Args().addU256(orderId),
           {
-            coins: Mas.fromString('0.01'),
+            coins: Mas.fromUmas(10_000_000n), // 0.01 MAS fee
             maxGas: BigInt(200_000_000),
           }
         );

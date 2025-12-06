@@ -145,7 +145,7 @@ export const RecurringOrder: React.FC<{ onBackClick: () => void }> = ({ onBackCl
   const handleSetMaxAmount = () => {
     if (order.balance) {
       const totalExecutions = parseInt(order.totalExecutions) || 1;
-      const maxPerExecution = Number(order.balance) / BigInt(totalExecutions) / BigInt(1e18);
+      const maxPerExecution = Number(order.balance) / BigInt(totalExecutions) / BigInt(1e9);
       setOrder(prev => ({
         ...prev,
         amountPerExecution: maxPerExecution.toString(),
@@ -203,7 +203,7 @@ export const RecurringOrder: React.FC<{ onBackClick: () => void }> = ({ onBackCl
 
     try {
       // Convert inputs to contract format
-      const amountPerExecution = BigInt(Math.floor(parseFloat(order.amountPerExecution) * 1e18));
+      const amountPerExecution = BigInt(Math.floor(parseFloat(order.amountPerExecution) * 1e9));
 
       // Convert days to periods (1 day ≈ 5400 periods at 16s/period)
       const intervalDays = parseInt(order.intervalDays);
@@ -458,7 +458,7 @@ export const RecurringOrder: React.FC<{ onBackClick: () => void }> = ({ onBackCl
 
                 {order.tokenOut && order.balance !== null && (
                   <div className="balance-info">
-                    <span className="balance-text">Balance: {(Number(order.balance) / 1e18).toFixed(2)} {order.tokenOut.symbol}</span>
+                    <span className="balance-text">Balance: {(Number(order.balance) / 1e9).toFixed(2)} {order.tokenOut.symbol}</span>
                     <button className="btn-max" onClick={handleSetMaxAmount}>
                       Max
                     </button>
@@ -577,8 +577,8 @@ export const RecurringOrder: React.FC<{ onBackClick: () => void }> = ({ onBackCl
               {order.balance !== null && order.amountPerExecution && (
                 <div className="summary-row">
                   <span>Balance Check</span>
-                  <span className={`summary-value ${parseFloat(calculateTotalAmount()) <= Number(order.balance) / 1e18 ? 'valid' : 'invalid'}`}>
-                    {parseFloat(calculateTotalAmount()) <= Number(order.balance) / 1e18 ? '✅ Sufficient' : '❌ Insufficient'}
+                  <span className={`summary-value ${parseFloat(calculateTotalAmount()) <= Number(order.balance) / 1e9 ? 'valid' : 'invalid'}`}>
+                    {parseFloat(calculateTotalAmount()) <= Number(order.balance) / 1e9 ? '✅ Sufficient' : '❌ Insufficient'}
                   </span>
                 </div>
               )}

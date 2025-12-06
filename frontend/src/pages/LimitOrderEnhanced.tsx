@@ -157,7 +157,7 @@ export const LimitOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick 
     if (order.balance) {
       setOrder(prev => ({
         ...prev,
-        amountIn: (Number(order.balance) / 1e18).toString(),
+        amountIn: (Number(order.balance) / 1e9).toString(),
       }));
     }
   };
@@ -213,9 +213,9 @@ export const LimitOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick 
 
     try {
       // Convert inputs to contract format
-      const amountIn = BigInt(Math.floor(parseFloat(order.amountIn) * 1e18));
+      const amountIn = BigInt(Math.floor(parseFloat(order.amountIn) * 1e9));
       const minAmountOut = order.minAmountOut
-        ? BigInt(Math.floor(parseFloat(order.minAmountOut) * 1e18))
+        ? BigInt(Math.floor(parseFloat(order.minAmountOut) * 1e9))
         : BigInt(0);
 
       // Convert limit price to Q64.96 format
@@ -442,7 +442,7 @@ export const LimitOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick 
 
                 {order.tokenIn && order.balance !== null && (
                   <div className="balance-info">
-                    <span className="balance-text">Balance: {(Number(order.balance) / 1e18).toFixed(2)} {order.tokenIn.symbol}</span>
+                    <span className="balance-text">Balance: {(Number(order.balance) / 1e9).toFixed(2)} {order.tokenIn.symbol}</span>
                     <button className="btn-max" onClick={handleSetMaxAmount}>
                       Max
                     </button>
@@ -640,8 +640,8 @@ export const LimitOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick 
               {order.balance !== null && order.amountIn && (
                 <div className="summary-row">
                   <span>Balance Check</span>
-                  <span className={`summary-value ${Number(order.amountIn) <= Number(order.balance) / 1e18 ? 'valid' : 'invalid'}`}>
-                    {Number(order.amountIn) <= Number(order.balance) / 1e18 ? '✅ Sufficient' : '❌ Insufficient'}
+                  <span className={`summary-value ${Number(order.amountIn) <= Number(order.balance) / 1e9 ? 'valid' : 'invalid'}`}>
+                    {Number(order.amountIn) <= Number(order.balance) / 1e9 ? '✅ Sufficient' : '❌ Insufficient'}
                   </span>
                 </div>
               )}

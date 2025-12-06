@@ -426,6 +426,14 @@
   white-space: nowrap;
 }
 
+.summary-row .value.warning {
+  color: hsl(38, 92%, 50%);
+}
+
+.summary-row .value.error {
+  color: hsl(0, 84%, 60%);
+}
+
 /* Action Buttons */
 .form-actions {
   display: flex;

@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { Args, SmartContract, IProvider, Mas } from '@massalabs/massa-web3';
+import { Args, SmartContract, Provider, Mas, strToBytes } from '@massalabs/massa-web3';
 
 export interface RecurringOrder {
   orderId: string;
@@ -32,7 +32,7 @@ export interface OrderProgress {
 
 export function useRecurringOrderManager(
   contractAddress: string | null,
-  provider: IProvider | null,
+  provider: Provider | null,
   userAddress: string | null
 ) {
   const [loading, setLoading] = useState(false);
@@ -48,7 +48,8 @@ export function useRecurringOrderManager(
       tokenOut: string,
       amountPerExecution: bigint,
       intervalPeriods: bigint,
-      totalExecutions: bigint
+      totalExecutions: bigint,
+      coinsToSend = Mas.fromMas(0n) // Optional native MAS to send
     ): Promise<string | null> => {
       if (!provider || !contractAddress || !userAddress) {
         setError('Provider, contract, or user address not available');
@@ -61,9 +62,11 @@ export function useRecurringOrderManager(
 
       try {
         const contract = new SmartContract(provider, contractAddress);
+        const fixedFee = Mas.fromMas(100_000_000n); // 0.1 MAS as fixed fee
+        const totalCoins = Mas.fromMas(coinsToSend + fixedFee);
 
-        // Calculate total amount needed
-        const totalAmount = amountPerExecution * totalExecutions;
+        // Calculate total amount needed (This is from the contract itself, not needed for frontend call)
+        // const totalAmount = amountPerExecution * totalExecutions; 
 
         const tx = await contract.call(
           'createRecurringOrder',
@@ -74,7 +77,7 @@ export function useRecurringOrderManager(
             .addU64(intervalPeriods)
             .addU64(totalExecutions),
           {
-            coins: Mas.fromString('0.1'), // Fee for contract execution
+            coins: totalCoins,
             maxGas: BigInt(300_000_000),
           }
         );
@@ -83,9 +86,16 @@ export function useRecurringOrderManager(
         setTxHash(tx.id);
 
         // Get order ID from return value
-        const orderId = new Args(tx.result?.returnValue || new Uint8Array()).nextU256().toString();
+        const orderId = contract.provider.getEvents({
+          smartContractAddress: contractAddress,
+        });
 
-        return orderId;
+        // Extract the order ID from the events
+        // This is a simplified approach - you might need to parse the actual event data
+        const firstEvent = orderId[0];
+        const orderIdValue = firstEvent?.data?.orderId || '0';
+
+        return orderIdValue;
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Failed to create recurring order';
         console.error('Error creating recurring order:', err);
@@ -119,7 +129,7 @@ export function useRecurringOrderManager(
           'cancelRecurringOrder',
           new Args().addU256(orderId),
           {
-            coins: Mas.fromString('0.01'),
+            coins: Mas.fromMas(10_000_000n), // 0.01 MAS fee
             maxGas: BigInt(200_000_000),
           }
         );
@@ -281,8 +291,8 @@ export function useRecurringOrderManager(
 
         const orders: RecurringOrder[] = [];
         for (let i = 0; i < count; i++) {
-          const orderData = args.nextBytes();
-          const orderArgs = new Args(orderData);
+          const orderData = args.nextString();
+          const orderArgs = new Args(strToBytes(orderData));
 
           const order: RecurringOrder = {
             orderId: orderArgs.nextU256().toString(),
@@ -388,8 +398,8 @@ export function useRecurringOrderManager(
 
         const orders: RecurringOrder[] = [];
         for (let i = 0; i < count; i++) {
-          const orderData = args.nextBytes();
-          const orderArgs = new Args(orderData);
+          const orderData = args.nextString();
+          const orderArgs = new Args(strToBytes(orderData));
 
           const order: RecurringOrder = {
             orderId: orderArgs.nextU256().toString(),

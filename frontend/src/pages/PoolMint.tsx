@@ -1,16 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { BUILDNET_TOKENS } from "@massalabs/massa-web3";
 import { ChevronDown, ArrowUpDown, Zap } from 'lucide-react';
 import '../styles/PoolMint.css';
-import { useFactory } from '@/hooks/useFactory';
-import { useWallet } from '@/hooks/useWallet';
+import { useFactory } from '../hooks/useFactory';
+import { useWallet } from '../hooks/useWallet';
 import { FACTORY_ADDRESS } from '../constants/contracts';
 
-interface TokenOption {
-  symbol: string;
-  address: string;
-  name: string;
-}
+import { TOKEN_OPTIONS, TokenOption } from '../constants/tokens';
 
 const PoolMint = () => {
   const [token0, setToken0] = useState<TokenOption | null>(null);
@@ -22,12 +17,7 @@ const PoolMint = () => {
   const {createPool} = useFactory(FACTORY_ADDRESS, isConnected, provider, userAddress)
 
   
-  // Convert BUILDNET_TOKENS to array
-  const tokenOptions: TokenOption[] = Object.entries(BUILDNET_TOKENS).map(([symbol, address]) => ({
-    symbol,
-    address,
-    name: symbol
-  }));
+  const tokenOptions = TOKEN_OPTIONS;
 
   const switchTokens = () => {
     const temp = token0;
@@ -55,7 +45,6 @@ const PoolMint = () => {
     console.log("Pool created with id", id)
   }
 
-  console.log(provider)
 
   const feeOptions = [
     { value: '500', label: '0.05%', apr: '0.1%' },

@@ -1,17 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronDown, ArrowRightLeft, TrendingUp, AlertCircle, CheckCircle, Grid3x3, Info } from 'lucide-react';
+import { ChevronDown, ArrowRightLeft, TrendingUp, AlertCircle, CheckCircle, Grid3x3, Info, Activity, Zap } from 'lucide-react';
 import { useWallet } from '../hooks/useWallet';
 import { useFactory } from '../hooks/useFactory';
 import { useToken } from '../hooks/useToken';
 import { FACTORY_ADDRESS, GRID_ORDER_MANAGER_ADDRESS } from '../constants/contracts';
 import '../styles/GridOrder.css';
-import { BUILDNET_TOKENS } from '@massalabs/massa-web3';
-
-interface TokenOption {
-  symbol: string;
-  address: string;
-  name: string;
-}
+import { Mas } from '@massalabs/massa-web3';
+import { TOKEN_OPTIONS, NATIVE_MAS, TokenOption } from '../constants/tokens';
+import { useGridOrderManager } from '../hooks/useGridOrderManager';
 
 interface GridOrderData {
   tokenIn: TokenOption | null;
@@ -38,8 +34,18 @@ interface UserGridOrder {
 }
 
 export const GridOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick }) => {
-  const { isConnected, userAddress, provider } = useWallet();
+  const { isConnected, userAddress, provider, userMasBalance } = useWallet();
   const { getPools } = useFactory(FACTORY_ADDRESS, isConnected, provider, userAddress);
+
+  // Grid order manager hook
+  const {
+    createGridOrder,
+    getUserGrids: getManagerUserGrids, // Renamed to avoid conflict
+    getGridStats,
+    getBotExecutionCount,
+    loading: gridManagerLoading,
+    error: gridManagerError,
+  } = useGridOrderManager(GRID_ORDER_MANAGER_ADDRESS, provider, userAddress);
 
   // Grid order data state
   const [order, setOrder] = useState<GridOrderData>({
@@ -61,18 +67,25 @@ export const GridOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick }
   const [success, setSuccess] = useState<string | null>(null);
 
   // User grid orders state
-  const [userGrids, setUserGrids] = useState<UserGridOrder[]>([]);
+  const [userGrids, setUserGrids] = useState<typeof GridOrder[]>([]); // Use GridOrder from hook
   const [gridsLoading, setGridsLoading] = useState(false);
+  const [gridStats, setGridStats] = useState({ totalGrids: 0, activeGrids: 0, cancelledGrids: 0, botExecutions: 0 });
+
 
   // Token hooks
-  const tokenInHook = useToken(order.tokenIn?.address || '', isConnected, userAddress);
+  const tokenInHook = useToken(order.tokenIn?.address || '', isConnected, provider, userAddress);
 
   // Fetch balance when tokenIn changes
   useEffect(() => {
     if (order.tokenIn && userAddress) {
       const fetchBalance = async () => {
         try {
-          const bal = await tokenInHook.balanceOf(userAddress);
+          let bal: bigint | null = null;
+          if (order.tokenIn?.address === NATIVE_MAS.address) {
+            bal = userMasBalance;
+          } else {
+            bal = await tokenInHook.balanceOf(userAddress);
+          }
           setOrder(prev => ({ ...prev, balance: bal }));
         } catch (err) {
           console.error('Error fetching balance:', err);
@@ -80,52 +93,39 @@ export const GridOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick }
       };
       fetchBalance();
     }
-  }, [userAddress]);
-
-  // Fetch user's grid orders
-  useEffect(() => {
-    if (userAddress) {
-      const fetchUserGrids = async () => {
+  }, [order.tokenIn, userAddress, userMasBalance, tokenInHook]);
+ const fetchUserGrids = async () => {
         setGridsLoading(true);
         try {
-          // Mock user grid orders - in real implementation, fetch from contract
-          const mockGrids: UserGridOrder[] = [
-            {
-              id: '1',
-              tokenIn: 'USDC',
-              tokenOut: 'WMAS',
-              lowerPrice: '0.85',
-              upperPrice: '1.15',
-              gridLevels: '20',
-              filledLevels: '12',
-              profitUSD: '245.50',
-              status: 'ACTIVE',
-              createdAt: new Date(Date.now() - 604800000).toLocaleDateString(),
-            },
-            {
-              id: '2',
-              tokenIn: 'WMAS',
-              tokenOut: 'USDC',
-              lowerPrice: '0.95',
-              upperPrice: '1.05',
-              gridLevels: '15',
-              filledLevels: '15',
-              profitUSD: '189.75',
-              status: 'COMPLETED',
-              createdAt: new Date(Date.now() - 2592000000).toLocaleDateString(),
-            },
-          ];
-          setUserGrids(mockGrids);
+          const fetchedGrids = await getManagerUserGrids(100); // Fetch actual grids
+          setUserGrids(fetchedGrids);
         } catch (err) {
           console.error('Error fetching user grids:', err);
         } finally {
           setGridsLoading(false);
         }
       };
+  // Fetch user's grid orders
+  useEffect(() => {
+    if (userAddress && getManagerUserGrids) {
+     
 
       fetchUserGrids();
     }
-  }, [userAddress]);
+  }, [userAddress, getManagerUserGrids]); // Add getManagerUserGrids to dependencies
+
+  // Fetch grid stats
+  useEffect(() => {
+    if (getGridStats) {
+      const fetchStats = async () => {
+        const stats = await getGridStats();
+        setGridStats(stats);
+      };
+      fetchStats();
+      const interval = setInterval(fetchStats, 30000); // Refresh every 30 seconds
+      return () => clearInterval(interval);
+    }
+  }, [getGridStats]);
 
   const handleTokenInSelect = (token: TokenOption) => {
     setOrder(prev => ({ ...prev, tokenIn: token }));
@@ -152,7 +152,7 @@ export const GridOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick }
       setOrder(prev => (
         {
           ...prev,
-          amountPerLevel: (Number(order.balance) / 1e18).toString(),
+          amountPerLevel: (Number(order.balance) / 1e9).toString(),
         }
       ));
     }
@@ -203,39 +203,81 @@ export const GridOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick }
       return;
     }
 
+    if (!order.tokenIn || !order.tokenOut) {
+      setError('Please select both tokens');
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     setSuccess(null);
 
     try {
-      // Placeholder for actual grid order creation
-      // In real implementation, this would call the gridOrderManager contract
-      console.log('Creating grid order:', {
-        tokenIn: order.tokenIn?.address,
-        tokenOut: order.tokenOut?.address,
-        lowerPrice: order.lowerPrice,
-        upperPrice: order.upperPrice,
-        gridLevels: order.gridLevels,
-        amountPerLevel: order.amountPerLevel,
-        strategyType: order.strategyType,
-      });
+      const amountPerLevelFloat = parseFloat(order.amountPerLevel);
+      const gridLevelsInt = parseInt(order.gridLevels);
+      const lowerPriceFloat = parseFloat(order.lowerPrice);
+      const upperPriceFloat = parseFloat(order.upperPrice);
 
-      setSuccess('Grid order created successfully! Your grid trading strategy is now active.');
+      if (isNaN(amountPerLevelFloat) || amountPerLevelFloat <= 0 || isNaN(gridLevelsInt) || gridLevelsInt <= 0 || isNaN(lowerPriceFloat) || lowerPriceFloat <= 0 || isNaN(upperPriceFloat) || upperPriceFloat <= 0) {
+        throw new Error('Invalid amount, levels, or price range.');
+      }
 
-      // Reset form
-      setTimeout(() => {
-        setOrder({
-          tokenIn: null,
-          tokenOut: null,
-          lowerPrice: '0.90',
-          upperPrice: '1.10',
-          gridLevels: '10',
-          amountPerLevel: '',
-          strategyType: 'RANGE',
-          balance: null,
-        });
-        setSuccess(null);
-      }, 3000);
+      const amountPerLevelWei = BigInt(Math.floor(amountPerLevelFloat * 1e9));
+      const totalAmountWei = BigInt(Math.floor(amountPerLevelFloat * gridLevelsInt * 1e9));
+
+      const lowerPriceWei = BigInt(Math.floor(lowerPriceFloat * 1e9)); // Assuming price is also 18 decimals
+      const upperPriceWei = BigInt(Math.floor(upperPriceFloat * 1e9)); // Assuming price is also 18 decimals
+
+      let coinsToSend: Mas | undefined = undefined;
+
+      // Check if tokenIn is NATIVE_MAS
+      if (order.tokenIn.address === NATIVE_MAS.address) {
+        coinsToSend = Mas.fromMas(totalAmountWei);
+        // No allowance needed for native MAS, it's sent directly
+      } else {
+        // Perform allowance check for ERC-20 like tokens
+        const allowance = await tokenInHook.allowance(userAddress, GRID_ORDER_MANAGER_ADDRESS);
+        if (allowance === null || allowance < totalAmountWei) {
+          setError(`Insufficient allowance for ${order.tokenIn.symbol}. Please approve the Grid Order Manager to spend your tokens.`);
+          setIsLoading(false);
+          // TODO: Add an approval step here
+          return;
+        }
+      }
+
+      // Create grid order
+      const gridId = await createGridOrder(
+        order.tokenIn.address,
+        order.tokenOut.address,
+        BigInt(gridLevelsInt),
+        lowerPriceWei,
+        upperPriceWei,
+        amountPerLevelWei,
+        coinsToSend
+      );
+
+      if (gridId) {
+        setSuccess('Grid order created successfully! Your grid trading strategy is now active.');
+        // Refresh user grids
+        await fetchUserGrids();
+
+        // Reset form
+        setTimeout(() => {
+          setOrder({
+            tokenIn: null,
+            tokenOut: null,
+            lowerPrice: '0.90',
+            upperPrice: '1.10',
+            gridLevels: '10',
+            amountPerLevel: '',
+            strategyType: 'RANGE',
+            balance: null,
+          });
+          setSuccess(null);
+        }, 5000); // Increased timeout to see success message
+      } else {
+        setError(gridManagerError || 'Failed to create grid order');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create grid order');
     } finally {
@@ -255,6 +297,38 @@ export const GridOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick }
             <div>
               <h1>Grid Trading</h1>
               <p>Automate profit-taking with grid orders across a price range</p>
+            </div>
+          </div>
+
+          {/* Bot Status Banner */}
+          <div className="bot-status-banner">
+            <div className="bot-status-item">
+              <Activity className="bot-icon" size={20} />
+              <div>
+                <span className="bot-label">Bot Status</span>
+                <span className="bot-value active">Active</span>
+              </div>
+            </div>
+            <div className="bot-status-item">
+              <Zap className="bot-icon" size={20} />
+              <div>
+                <span className="bot-label">Executions</span>
+                <span className="bot-value">{gridStats.botExecutions}</span>
+              </div>
+            </div>
+            <div className="bot-status-item">
+              <Grid3x3 className="bot-icon" size={20} />
+              <div>
+                <span className="bot-label">Total Grids</span>
+                <span className="bot-value">{gridStats.totalGrids}</span>
+              </div>
+            </div>
+            <div className="bot-status-item">
+              <TrendingUp className="bot-icon" size={20} />
+              <div>
+                <span className="bot-label">Active Grids</span>
+                <span className="bot-value">{gridStats.activeGrids}</span>
+              </div>
             </div>
           </div>
 
@@ -318,11 +392,7 @@ export const GridOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick }
                   {showTokenInDropdown && (
                     <div className="token-dropdown">
                       <div className="dropdown-list">
-                        {Object.entries(BUILDNET_TOKENS).map(([symbol, address]) => ({
-                          symbol,
-                          address,
-                          name: symbol
-                        })).map((token) => (
+                        {TOKEN_OPTIONS.map((token) => (
                           <button
                             key={token.address}
                             className={`dropdown-item ${order.tokenIn?.address === token.address ? 'selected' : ''}`}
@@ -341,7 +411,7 @@ export const GridOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick }
 
                 {order.tokenIn && order.balance !== null && (
                   <div className="balance-info">
-                    <span className="balance-text">Balance: {(Number(order.balance) / 1e18).toFixed(2)} {order.tokenIn.symbol}</span>
+                    <span className="balance-text">Balance: {(Number(order.balance) / 1e9).toFixed(2)} {order.tokenIn.symbol}</span>
                     <button className="btn-max" onClick={handleSetMaxAmount}>
                       Max
                     </button>
@@ -375,11 +445,7 @@ export const GridOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick }
                   {showTokenOutDropdown && (
                     <div className="token-dropdown">
                       <div className="dropdown-list">
-                        {Object.entries(BUILDNET_TOKENS).map(([symbol, address]) => ({
-                          symbol,
-                          address,
-                          name: symbol
-                        })).map((token) => (
+                        {TOKEN_OPTIONS.map((token) => (
                           <button
                             key={token.address}
                             className={`dropdown-item ${order.tokenOut?.address === token.address ? 'selected' : ''}`}
@@ -541,8 +607,8 @@ export const GridOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick }
               {order.balance !== null && order.amountPerLevel && (
                 <div className="summary-row">
                   <span>Balance Check</span>
-                  <span className={`summary-value ${Number(order.amountPerLevel) * parseInt(order.gridLevels || '1') <= Number(order.balance) / 1e18 ? 'valid' : 'invalid'}`}>
-                    {Number(order.amountPerLevel) * parseInt(order.gridLevels || '1') <= Number(order.balance) / 1e18 ? '✅ Sufficient' : '❌ Insufficient'}
+                  <span className={`summary-value ${Number(order.amountPerLevel) * parseInt(order.gridLevels || '1') <= Number(order.balance) / 1e9 ? 'valid' : 'invalid'}`}>
+                    {Number(order.amountPerLevel) * parseInt(order.gridLevels || '1') <= Number(order.balance) / 1e9 ? '✅ Sufficient' : '❌ Insufficient'}
                   </span>
                 </div>
               )}
@@ -635,41 +701,39 @@ export const GridOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick }
               </div>
             ) : (
               <div className="grids-list">
-                {userGrids.map((grid) => (
-                  <div key={grid.id} className="grid-item">
-                    <div className="grid-header">
-                      <span className={`grid-status-badge ${grid.status.toLowerCase()}`}>
-                        {grid.status}
-                      </span>
-                    </div>
-                    <div className="grid-details">
-                      <div className="detail-row">
-                        <span className="detail-label">Pair</span>
-                        <span className="detail-value">{grid.tokenIn}/{grid.tokenOut}</span>
+                {userGrids.map((grid) => {
+                  const status = grid.cancelled ? 'CANCELLED' : grid.active ? 'ACTIVE' : 'INACTIVE';
+                  // NOTE: To get token symbols, a mapping from address to symbol would be needed here.
+                  // For now, showing truncated addresses.
+                  const tokenInSymbol = grid.tokenIn.slice(0, 5) + '...';
+                  const tokenOutSymbol = grid.tokenOut.slice(0, 5) + '...';
+
+                  return (
+                    <div key={grid.gridId} className="grid-item">
+                      <div className="grid-header">
+                        <span className={`grid-status-badge ${status.toLowerCase()}`}>
+                          {status}
+                        </span>
                       </div>
-                      <div className="detail-row">
-                        <span className="detail-label">Levels</span>
-                        <span className="detail-value">{grid.filledLevels}/{grid.gridLevels}</span>
-                      </div>
-                      <div className="progress-bar">
-                        <div
-                          className="progress-fill"
-                          style={{
-                            width: `${(parseInt(grid.filledLevels) / parseInt(grid.gridLevels)) * 100}%`
-                          }}
-                        ></div>
-                      </div>
-                      <div className="detail-row">
-                        <span className="detail-label">Profit</span>
-                        <span className="detail-value profit">${grid.profitUSD}</span>
-                      </div>
-                      <div className="detail-row">
-                        <span className="detail-label">Range</span>
-                        <span className="detail-value">{grid.lowerPrice} - {grid.upperPrice}</span>
+                      <div className="grid-details">
+                        <div className="detail-row">
+                          <span className="detail-label">Pair</span>
+                          <span className="detail-value">{tokenInSymbol}/{tokenOutSymbol}</span>
+                        </div>
+                        <div className="detail-row">
+                          <span className="detail-label">Levels</span>
+                          <span className="detail-value">{grid.gridLevels.toString()}</span>
+                        </div>
+                        <div className="detail-row">
+                          <span className="detail-label">Range</span>
+                          <span className="detail-value">
+                            {(Number(grid.lowerPrice) / 1e9).toFixed(4)} - {(Number(grid.upperPrice) / 1e9).toFixed(4)}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

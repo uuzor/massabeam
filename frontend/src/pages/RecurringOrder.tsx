@@ -5,13 +5,8 @@ import { useToken } from '../hooks/useToken';
 import { useRecurringOrderManager, RecurringOrder as RecurringOrderType, periodsToTime, calculateNextExecutionDate } from '../hooks/useRecurringOrderManager';
 import { RECURRING_ORDER_MANAGER_ADDRESS } from '../constants/contracts';
 import '../styles/RecurringOrder.css';
-import { BUILDNET_TOKENS } from '@massalabs/massa-web3';
-
-interface TokenOption {
-  symbol: string;
-  address: string;
-  name: string;
-}
+import { Mas } from '@massalabs/massa-web3';
+import { TOKEN_OPTIONS, NATIVE_MAS, TokenOption } from '../constants/tokens';
 
 interface OrderData {
   tokenIn: TokenOption | null;
@@ -23,7 +18,7 @@ interface OrderData {
 }
 
 export const RecurringOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick }) => {
-  const { isConnected, userAddress, provider } = useWallet();
+  const { isConnected, userAddress, provider, userMasBalance } = useWallet();
 
   // Smart contract hook
   const {
@@ -60,15 +55,20 @@ export const RecurringOrder: React.FC<{ onBackClick: () => void }> = ({ onBackCl
   const [orderProgress, setOrderProgress] = useState<Map<string, any>>(new Map());
   const [botExecutionCount, setBotExecutionCount] = useState<number>(0);
 
-  // Token hooks
-  const tokenInHook = useToken(order.tokenIn?.address || '', isConnected, userAddress);
+  // Token hooks - tokenIn is the token to buy, tokenOut is the token to spend
+  const tokenOutHook = useToken(order.tokenOut?.address || '', isConnected, provider, userAddress);
 
-  // Fetch balance when tokenIn changes
+  // Fetch balance for the token being spent (tokenOut)
   useEffect(() => {
-    if (order.tokenIn && userAddress) {
+    if (order.tokenOut && userAddress) {
       const fetchBalance = async () => {
         try {
-          const bal = await tokenInHook.balanceOf(userAddress);
+          let bal: bigint | null = null;
+          if (order.tokenOut?.address === NATIVE_MAS.address) {
+            bal = userMasBalance;
+          } else {
+            bal = await tokenOutHook.balanceOf(userAddress);
+          }
           setOrder(prev => ({ ...prev, balance: bal }));
         } catch (err) {
           console.error('Error fetching balance:', err);
@@ -76,7 +76,7 @@ export const RecurringOrder: React.FC<{ onBackClick: () => void }> = ({ onBackCl
       };
       fetchBalance();
     }
-  }, [order.tokenIn, userAddress]);
+  }, [order.tokenOut, userAddress, userMasBalance, tokenOutHook]);
 
   // Fetch user's recurring orders
   useEffect(() => {
@@ -145,7 +145,8 @@ export const RecurringOrder: React.FC<{ onBackClick: () => void }> = ({ onBackCl
   const handleSetMaxAmount = () => {
     if (order.balance) {
       const totalExecutions = parseInt(order.totalExecutions) || 1;
-      const maxPerExecution = Number(order.balance) / BigInt(totalExecutions) / BigInt(1e18);
+      const maxPerExecution = BigInt
+      (order.balance) / BigInt(totalExecutions) / BigInt(1e9);
       setOrder(prev => ({
         ...prev,
         amountPerExecution: maxPerExecution.toString(),
@@ -203,22 +204,50 @@ export const RecurringOrder: React.FC<{ onBackClick: () => void }> = ({ onBackCl
 
     try {
       // Convert inputs to contract format
-      const amountPerExecution = BigInt(Math.floor(parseFloat(order.amountPerExecution) * 1e18));
+      const amountPerExecutionFloat = parseFloat(order.amountPerExecution);
+      const totalExecutionsFloat = parseFloat(order.totalExecutions);
+      
+      if (isNaN(amountPerExecutionFloat) || amountPerExecutionFloat <= 0 || isNaN(totalExecutionsFloat) || totalExecutionsFloat <= 0) {
+        throw new Error('Invalid amount or total executions.');
+      }
+
+      const amountPerExecutionWei = BigInt(Math.floor(amountPerExecutionFloat * 1e9));
+      const totalAmountWei = BigInt(Math.floor(amountPerExecutionFloat * totalExecutionsFloat * 1e9));
+
 
       // Convert days to periods (1 day ≈ 5400 periods at 16s/period)
       const intervalDays = parseInt(order.intervalDays);
-      const periodsPerDay = 5400;
+      const periodsPerDay = 5400; // Approximate periods per day
       const intervalPeriods = BigInt(intervalDays * periodsPerDay);
 
       const totalExecutions = BigInt(parseInt(order.totalExecutions));
 
+      let coinsToSend: any | undefined = undefined;
+
+      
+      // Check if tokenOut (the token being spent) is NATIVE_MAS
+      if (order.tokenOut.address === NATIVE_MAS.address) {
+        coinsToSend = Mas.fromMas(totalAmountWei);
+        // No allowance needed for native MAS
+      } else {
+        // Perform allowance check for ERC-20 like tokens
+        const allowance = await tokenOutHook.allowance(userAddress, RECURRING_ORDER_MANAGER_ADDRESS);
+        if (allowance === null || allowance < totalAmountWei) {
+          setError(`Insufficient allowance for ${order.tokenOut.symbol}. Please approve the Recurring Order Manager to spend your tokens.`);
+          setIsLoading(false);
+          // TODO: Add an approval step here
+          return;
+        }
+      }
+
       // Create order
       const orderId = await createRecurringOrder(
-        order.tokenOut.address, // tokenIn (what we're spending)
-        order.tokenIn.address,  // tokenOut (what we're buying)
-        amountPerExecution,
+        order.tokenIn.address, // tokenIn (what we're buying)
+        order.tokenOut.address, // tokenOut (what we're spending)
+        amountPerExecutionWei,
         intervalPeriods,
-        totalExecutions
+        totalExecutions,
+        coinsToSend
       );
 
       if (orderId) {
@@ -386,11 +415,7 @@ export const RecurringOrder: React.FC<{ onBackClick: () => void }> = ({ onBackCl
                   {showTokenInDropdown && (
                     <div className="token-dropdown">
                       <div className="dropdown-list">
-                        {Object.entries(BUILDNET_TOKENS).map(([symbol, address]) => ({
-                          symbol,
-                          address,
-                          name: symbol
-                        })).map((token) => (
+                        {TOKEN_OPTIONS.map((token) => (
                           <button
                             key={token.address}
                             className={`dropdown-item ${order.tokenIn?.address === token.address ? 'selected' : ''}`}
@@ -435,11 +460,7 @@ export const RecurringOrder: React.FC<{ onBackClick: () => void }> = ({ onBackCl
                   {showTokenOutDropdown && (
                     <div className="token-dropdown">
                       <div className="dropdown-list">
-                        {Object.entries(BUILDNET_TOKENS).map(([symbol, address]) => ({
-                          symbol,
-                          address,
-                          name: symbol
-                        })).map((token) => (
+                        {TOKEN_OPTIONS.map((token) => (
                           <button
                             key={token.address}
                             className={`dropdown-item ${order.tokenOut?.address === token.address ? 'selected' : ''}`}
@@ -458,7 +479,7 @@ export const RecurringOrder: React.FC<{ onBackClick: () => void }> = ({ onBackCl
 
                 {order.tokenOut && order.balance !== null && (
                   <div className="balance-info">
-                    <span className="balance-text">Balance: {(Number(order.balance) / 1e18).toFixed(2)} {order.tokenOut.symbol}</span>
+                    <span className="balance-text">Balance: {(Number(order.balance) / 1e9).toFixed(2)} {order.tokenOut.symbol}</span>
                     <button className="btn-max" onClick={handleSetMaxAmount}>
                       Max
                     </button>
@@ -577,8 +598,8 @@ export const RecurringOrder: React.FC<{ onBackClick: () => void }> = ({ onBackCl
               {order.balance !== null && order.amountPerExecution && (
                 <div className="summary-row">
                   <span>Balance Check</span>
-                  <span className={`summary-value ${parseFloat(calculateTotalAmount()) <= Number(order.balance) / 1e18 ? 'valid' : 'invalid'}`}>
-                    {parseFloat(calculateTotalAmount()) <= Number(order.balance) / 1e18 ? '✅ Sufficient' : '❌ Insufficient'}
+                  <span className={`summary-value ${parseFloat(calculateTotalAmount()) <= Number(order.balance) / 1e9 ? 'valid' : 'invalid'}`}>
+                    {parseFloat(calculateTotalAmount()) <= Number(order.balance) / 1e9 ? '✅ Sufficient' : '❌ Insufficient'}
                   </span>
                 </div>
               )}

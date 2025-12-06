@@ -15,13 +15,8 @@ import {
 } from '../hooks/useLimitOrderManager';
 import { LIMIT_ORDER_MANAGER_ADDRESS } from '../constants/contracts';
 import '../styles/LimitOrder.css';
-import { BUILDNET_TOKENS } from '@massalabs/massa-web3';
-
-interface TokenOption {
-  symbol: string;
-  address: string;
-  name: string;
-}
+import { Mas } from '@massalabs/massa-web3';
+import { TOKEN_OPTIONS, NATIVE_MAS, TokenOption } from '../constants/tokens';
 
 interface OrderData {
   tokenIn: TokenOption | null;
@@ -35,7 +30,7 @@ interface OrderData {
 }
 
 export const LimitOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick }) => {
-  const { isConnected, userAddress, provider } = useWallet();
+  const { isConnected, userAddress, provider, userMasBalance } = useWallet();
 
   // Smart contract hook
   const {
@@ -77,14 +72,19 @@ export const LimitOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick 
   const [stats, setStats] = useState({ totalOrders: 0, pendingOrders: 0, filledOrders: 0, cancelledOrders: 0 });
 
   // Token hooks
-  const tokenInHook = useToken(order.tokenIn?.address || '', isConnected, userAddress);
+  const tokenInHook = useToken(order.tokenIn?.address, isConnected, provider, userAddress);
 
   // Fetch balance when tokenIn changes
   useEffect(() => {
     if (order.tokenIn && userAddress) {
       const fetchBalance = async () => {
         try {
-          const bal = await tokenInHook.balanceOf(userAddress);
+          let bal: bigint | null = null;
+          if (order.tokenIn?.address === NATIVE_MAS.address) {
+            bal = userMasBalance;
+          } else {
+            bal = await tokenInHook.balanceOf(userAddress);
+          }
           setOrder(prev => ({ ...prev, balance: bal }));
         } catch (err) {
           console.error('Error fetching balance:', err);
@@ -92,7 +92,7 @@ export const LimitOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick 
       };
       fetchBalance();
     }
-  }, [order.tokenIn, userAddress]);
+  }, [order.tokenIn, userAddress, userMasBalance]);
 
   // Fetch user's orders
   useEffect(() => {
@@ -157,7 +157,7 @@ export const LimitOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick 
     if (order.balance) {
       setOrder(prev => ({
         ...prev,
-        amountIn: (Number(order.balance) / 1e18).toString(),
+        amountIn: (Number(order.balance) / 1e9).toString(),
       }));
     }
   };
@@ -213,9 +213,14 @@ export const LimitOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick 
 
     try {
       // Convert inputs to contract format
-      const amountIn = BigInt(Math.floor(parseFloat(order.amountIn) * 1e18));
+      const amountInFloat = parseFloat(order.amountIn);
+      if (isNaN(amountInFloat) || amountInFloat <= 0) {
+        throw new Error('Invalid amount to sell.');
+      }
+      const amountInWei = BigInt(Math.floor(amountInFloat * 1e9));
+
       const minAmountOut = order.minAmountOut
-        ? BigInt(Math.floor(parseFloat(order.minAmountOut) * 1e18))
+        ? BigInt(Math.floor(parseFloat(order.minAmountOut) * 1e9))
         : BigInt(0);
 
       // Convert limit price to Q64.96 format
@@ -226,17 +231,35 @@ export const LimitOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick 
 
       // Expiry in seconds
       const expiryDays = parseInt(order.expiryDays);
-      const expiry = BigInt(expiryDays * 24 * 60 * 60);
+      const expiry = BigInt(expiryDays * 24 * 60 * 60); // Convert days to seconds
+
+      let coinsToSend: Mas | undefined = undefined;
+
+      // Check if tokenIn is NATIVE_MAS
+      if (order.tokenIn.address === NATIVE_MAS.address) {
+        coinsToSend = Mas.fromMas(amountInWei);
+        // No allowance needed for native MAS, it's sent directly
+      } else {
+        // Perform allowance check for ERC-20 like tokens
+        const allowance = await tokenInHook.allowance(userAddress, LIMIT_ORDER_MANAGER_ADDRESS);
+        if (allowance === null || allowance < amountInWei) {
+          setError(`Insufficient allowance for ${order.tokenIn.symbol}. Please approve the Limit Order Manager to spend your tokens.`);
+          setIsLoading(false);
+          // TODO: Add an approval step here
+          return;
+        }
+      }
 
       // Create order
       const orderId = await createLimitOrder(
         order.tokenIn.address,
         order.tokenOut.address,
-        amountIn,
+        amountInWei,
         minAmountOut,
         limitPrice,
         orderType,
-        expiry
+        expiry,
+        coinsToSend
       );
 
       if (orderId) {
@@ -419,11 +442,7 @@ export const LimitOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick 
                   {showTokenInDropdown && (
                     <div className="token-dropdown">
                       <div className="dropdown-list">
-                        {Object.entries(BUILDNET_TOKENS).map(([symbol, address]) => ({
-                          symbol,
-                          address,
-                          name: symbol
-                        })).map((token) => (
+                        {TOKEN_OPTIONS.map((token) => (
                           <button
                             key={token.address}
                             className={`dropdown-item ${order.tokenIn?.address === token.address ? 'selected' : ''}`}
@@ -442,7 +461,7 @@ export const LimitOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick 
 
                 {order.tokenIn && order.balance !== null && (
                   <div className="balance-info">
-                    <span className="balance-text">Balance: {(Number(order.balance) / 1e18).toFixed(2)} {order.tokenIn.symbol}</span>
+                    <span className="balance-text">Balance: {(Number(order.balance) / 1e9).toFixed(2)} {order.tokenIn.symbol}</span>
                     <button className="btn-max" onClick={handleSetMaxAmount}>
                       Max
                     </button>
@@ -479,11 +498,7 @@ export const LimitOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick 
                   {showTokenOutDropdown && (
                     <div className="token-dropdown">
                       <div className="dropdown-list">
-                        {Object.entries(BUILDNET_TOKENS).map(([symbol, address]) => ({
-                          symbol,
-                          address,
-                          name: symbol
-                        })).map((token) => (
+                        {TOKEN_OPTIONS.map((token) => (
                           <button
                             key={token.address}
                             className={`dropdown-item ${order.tokenOut?.address === token.address ? 'selected' : ''}`}
@@ -640,8 +655,8 @@ export const LimitOrder: React.FC<{ onBackClick: () => void }> = ({ onBackClick 
               {order.balance !== null && order.amountIn && (
                 <div className="summary-row">
                   <span>Balance Check</span>
-                  <span className={`summary-value ${Number(order.amountIn) <= Number(order.balance) / 1e18 ? 'valid' : 'invalid'}`}>
-                    {Number(order.amountIn) <= Number(order.balance) / 1e18 ? '✅ Sufficient' : '❌ Insufficient'}
+                  <span className={`summary-value ${Number(order.amountIn) <= Number(order.balance) / 1e9 ? 'valid' : 'invalid'}`}>
+                    {Number(order.amountIn) <= Number(order.balance) / 1e9 ? '✅ Sufficient' : '❌ Insufficient'}
                   </span>
                 </div>
               )}

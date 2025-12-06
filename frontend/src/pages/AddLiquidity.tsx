@@ -4,6 +4,8 @@ import { useWallet } from '../hooks/useWallet';
 import { useFactory } from '../hooks/useFactory';
 import { usePool } from '../hooks/usePool';
 import { useToken } from '../hooks/useToken';
+import { Mas } from '@massalabs/massa-web3';
+import { NATIVE_MAS } from '../constants/tokens';
 import { FACTORY_ADDRESS } from '../constants/contracts';
 import '../styles/AddLiquidity.css';
 
@@ -91,31 +93,38 @@ export const AddLiquidity: React.FC<{ onBackClick: () => void }> = ({ onBackClic
 
   const fetchTokenMetadata = async () => {
     try {
-      // Fetch symbol and balance for token0
-      const symbol0 = await token0Hook.getSymbol();
-      const balance0Result = userAddress ? await token0Hook.balanceOf(userAddress) : null;
-      console.log(balance0Result)
-      const allowance0Result = userAddress && selectedPool ? await token0Hook.allowance(userAddress, selectedPool.id) : null;
+      if (!userAddress || !selectedPool || !provider) return;
 
-      // Fetch symbol and balance for token1
-      const symbol1 = await token1Hook.getSymbol();
-      const balance1Result = userAddress ? await token1Hook.balanceOf(userAddress) : null;
-      const allowance1Result = userAddress && selectedPool ? await token1Hook.allowance(userAddress, selectedPool.id) : null;
+      const { token0Address, token1Address, id: poolAddress } = selectedPool;
+      const MAX_U256 = BigInt(2) ** BigInt(256) - BigInt(1);
 
-      // Update selected pool with actual symbols
-      if ((symbol0 || symbol1) && selectedPool) {
-        setSelectedPool({
-          ...selectedPool,
-          token0: symbol0 || 'Token0',
-          token1: symbol1 || 'Token1',
-        });
+      // Token 0
+      if (token0Address === NATIVE_MAS.address) {
+        // Assuming useWallet provides userMasBalance
+        // setBalance0(userMasBalance); 
+        setAllowance0(MAX_U256); // Native MAS doesn't require allowance
+      } else {
+        const symbol0 = await token0Hook.getSymbol();
+        const balance0Result = await token0Hook.balanceOf(userAddress);
+        const allowance0Result = await token0Hook.allowance(userAddress, poolAddress);
+        setSelectedPool(prev => ({ ...prev, token0: symbol0 || 'Token0' }));
+        setBalance0(balance0Result);
+        setAllowance0(allowance0Result);
       }
 
-      // Store balances and allowances
-      setBalance0(balance0Result);
-      setBalance1(balance1Result);
-      setAllowance0(allowance0Result);
-      setAllowance1(allowance1Result);
+      // Token 1
+      if (token1Address === NATIVE_MAS.address) {
+        // Assuming useWallet provides userMasBalance
+        // setBalance1(userMasBalance);
+        setAllowance1(MAX_U256); // Native MAS doesn't require allowance
+      } else {
+        const symbol1 = await token1Hook.getSymbol();
+        const balance1Result = await token1Hook.balanceOf(userAddress);
+        const allowance1Result = await token1Hook.allowance(userAddress, poolAddress);
+        setSelectedPool(prev => ({ ...prev, token1: symbol1 || 'Token1' }));
+        setBalance1(balance1Result);
+        setAllowance1(allowance1Result);
+      }
     } catch (err) {
       console.error('Error fetching token metadata:', err);
     }
@@ -165,31 +174,32 @@ export const AddLiquidity: React.FC<{ onBackClick: () => void }> = ({ onBackClic
         throw new Error('User address not available');
       }
 
-      const amount0Wei = BigInt(Math.floor(parseFloat(amount0) * 1e18));
-      const amount1Wei = BigInt(Math.floor(parseFloat(amount1) * 1e18));
+      const amount0Wei = BigInt(Math.floor(parseFloat(amount0) * 1e9));
+      const amount1Wei = BigInt(Math.floor(parseFloat(amount1) * 1e9));
+      let coinsToMint = Mas.fromMicroMas(0n);
 
-      // Check and request allowance for token0
-      if (selectedPool.token0Address && allowance0 !== null && allowance0 < amount0Wei) {
-        setError(`Requesting approval for ${selectedPool.token0}...`);
-        setApprovalLoading(true);
-        try {
+      // Check and request allowance for token0 if it's not native MAS
+      if (selectedPool.token0Address !== NATIVE_MAS.address) {
+        if (allowance0 !== null && allowance0 < amount0Wei) {
+          setError(`Requesting approval for ${selectedPool.token0}...`);
+          setApprovalLoading(true);
           await token0Hook.increaseAllowance(selectedPool.id, amount0Wei);
-        } catch (error) {
-          
+          setApprovalLoading(false);
         }
-        setApprovalLoading(false);
+      } else {
+        coinsToMint = Mas.fromMicroMas(coinsToMint + amount0Wei);
       }
 
-      // Check and request allowance for token1
-      if (selectedPool.token1Address && allowance1 !== null && allowance1 < amount1Wei) {
-        setError(`Requesting approval for ${selectedPool.token1}...`);
-        setApprovalLoading(true);
-       try {
-        await token1Hook.increaseAllowance(selectedPool.id, amount1Wei);
-       } catch (error) {
-        
-       }
-        setApprovalLoading(false);
+      // Check and request allowance for token1 if it's not native MAS
+      if (selectedPool.token1Address !== NATIVE_MAS.address) {
+        if (allowance1 !== null && allowance1 < amount1Wei) {
+          setError(`Requesting approval for ${selectedPool.token1}...`);
+          setApprovalLoading(true);
+          await token1Hook.increaseAllowance(selectedPool.id, amount1Wei);
+          setApprovalLoading(false);
+        }
+      } else {
+        coinsToMint = Mas.fromMicroMas(coinsToMint + amount1Wei);
       }
 
       setError(null);
@@ -198,10 +208,12 @@ export const AddLiquidity: React.FC<{ onBackClick: () => void }> = ({ onBackClic
         recipient: userAddress,
         tickLower: parseInt(tickLower),
         tickUpper: parseInt(tickUpper),
-        liquidityDelta: amount0Wei,
+        liquidityDelta: amount0Wei, // Note: The contract might need adjustment if liquidityDelta is not based on one token amount
       };
+      console.log('Mint params:', mintParams);
+      console.log('Coins to mint:', coinsToMint);
 
-      const txId = await poolHook.mint(mintParams);
+      const txId = await poolHook.mint(mintParams, coinsToMint);
 
       if (txId) {
         setTxHash(txId);

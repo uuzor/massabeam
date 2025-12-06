@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Args, SmartContract, IProvider } from '@massalabs/massa-web3';
+import { Args, SmartContract, Provider } from '@massalabs/massa-web3';
 
 export interface RecurringOrder {
   orderId: string;
@@ -32,7 +32,7 @@ export interface OrderProgress {
 export function useRecurringOrder(
   contractAddress: string | null,
   orderId: string | null,
-  provider: IProvider | null
+  provider: Provider | null
 ) {
   const [order, setOrder] = useState<RecurringOrder | null>(null);
   const [loading, setLoading] = useState(false);

@@ -15,6 +15,7 @@ interface UseWalletReturn {
   error: string | null;
   connect: () => Promise<void>;
   disconnect: () => void;
+  userMasBalance: bigint | null;
 }
 
 export function useWallet(): UseWalletReturn {
@@ -23,6 +24,7 @@ export function useWallet(): UseWalletReturn {
   const [provider, setProvider] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [userMasBalance, setUserMasBalance] = useState<bigint | null>(null);
 
   useEffect(()=>{
     connect()
@@ -50,13 +52,13 @@ export function useWallet(): UseWalletReturn {
 
       const walletProvider = accounts[0];
 
-      walletProvider.callSC({
-        
-      })
-      console.log(walletProvider)
       setUserAddress(walletProvider.address);
-      setProvider(walletProvider);
+      setProvider(walletProvider); // Set the full IAccount object
       setIsConnected(true);
+
+      const balance = await walletProvider.balance(true); // Use .balance() method
+      setUserMasBalance(balance);
+
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to connect wallet';
       setError(errorMessage);
@@ -71,19 +73,13 @@ export function useWallet(): UseWalletReturn {
     setUserAddress('');
     setProvider(null);
     setError(null);
+    setUserMasBalance(null);
   }, []);
 
   // Check for existing wallet connection on mount
   useEffect(() => {
-    if (web3.wallet.connected && web3.wallet.account?.base58) {
-      setUserAddress(web3.wallet.account.base58);
-      setProvider({
-        address: web3.wallet.account.base58,
-        name: 'Massa Wallet'
-      });
-      setIsConnected(true);
-    }
-  }, []);
+    connect(); // Simply call connect to establish the connection and fetch balance
+  }, [connect]);
 
   return {
     isConnected,
@@ -92,6 +88,7 @@ export function useWallet(): UseWalletReturn {
     loading,
     error,
     connect,
-    disconnect
+    disconnect,
+    userMasBalance
   };
 }
